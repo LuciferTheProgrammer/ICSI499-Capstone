@@ -1,0 +1,24 @@
+Project Title: AI-Enhanced Automation for Cybersecurity Reporting
+
+Sponsor: Sarah Moore
+
+Affiliation: OrbitalFire Cybersecurity
+
+Email: sarah@orbitalfire.com
+
+Project Description: Cybersecurity teams generate large volumes of raw output data from penetration tests and vulnerability scans, but transforming those results
+into clear, concise, and professional customer ready reports require alot of time and manual work. In this project, our team will design, implement, and evaluate
+a software application that ingests penetration testing and vulnerability scan outputs, extract key information, and converts them
+into a consistent structure. The application will use AI-assisted parsing/information extraction to acquire details such as severity, evidence, affected systems, and
+recommended fixes. Utilizing the structured data, the application will automatically generate professional customer ready reports aligned with OrbitalFire's branding.
+We will evaluate the performance of this application using report consistency/quality, extraction accuracy, and time saved compared to a manual reporting workflow.
+
+Required Skillset:
+Strong programming experience, with Python being preferred, especially for developing automation scripts.
+Interest in data engineering, automation, or AI- assisted text generation.
+Ability to work with structured or unstructured data (CSV, JSON, XML, and more).
+Curiosity about cybersecurity concepts.
+An added bonus would be having experience utilizing templating engines such as (Jinja2, docx), APIs, or natural language processing.
+
+
+
