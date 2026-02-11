@@ -1,11 +1,12 @@
 # Automation Prototype source code.
 import pdfplumber
 import camelot
+from docx import Document
 
 technical_report = input("Please enter the file path for Technical Report: ")
 #executive_report = input("Please enter the file path for Executive Report: ")
 #activity_report = input("Please enter the file path for Activity Report: ")
-#findings_report = input("Please enter the file path for Findings Report: ")
+findings_report = input("Please enter the file path for Findings Report: ")
 
 def automated_testing_activity(technical_report):
     table_container = camelot.read_pdf(technical_report, pages="3-7", flavor="lattice")
@@ -23,6 +24,14 @@ def automated_testing_activity(technical_report):
     print("----------------------------------------------------------------------------------->")
     for event in activity_log:
         print(event)
+    doc_holder = Document(findings_report)
+    section = "AUTOMATED TESTING ACTIVITY"
+    for i, paragraph in enumerate(doc_holder.paragraphs):
+        if section.lower() in paragraph.text.lower():
+            for entry in reversed(activity_log):
+                doc_holder.paragraphs[i+1].insert_paragraph_before(entry)
+            break
+    doc_holder.save(findings_report)
 def main():
     automated_testing_activity(technical_report)
 main()
