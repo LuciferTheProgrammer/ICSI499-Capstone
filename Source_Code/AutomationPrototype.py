@@ -22,9 +22,7 @@ def automated_testing_activity(technical_report):
             cleaned = string1 + " " + string2 + " " + string3
             activity_log.append(cleaned)
     #        print(event)
-    print("----------------------------------------------------------------------------------->")
-    for event in activity_log:
-        print(event)
+    print("✅ All events copied.")
     doc_holder = Document(findings_report)
     section = "AUTOMATED TESTING ACTIVITY"
     for i, paragraph in enumerate(doc_holder.paragraphs):
@@ -35,7 +33,10 @@ def automated_testing_activity(technical_report):
                 execute  = container.add_run(entry)
                 execute.font.size = Pt(12)
             break
+    print("✅ All events pasted.")
     doc_holder.save(findings_report)
+    print("✅ Document saved.")
+
 def main():
     automated_testing_activity(technical_report)
 main()
