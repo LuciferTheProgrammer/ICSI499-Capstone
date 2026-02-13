@@ -2,6 +2,7 @@
 import pdfplumber
 import camelot
 from docx import Document
+from docx.shared import Pt
 
 technical_report = input("Please enter the file path for Technical Report: ")
 #executive_report = input("Please enter the file path for Executive Report: ")
@@ -29,7 +30,10 @@ def automated_testing_activity(technical_report):
     for i, paragraph in enumerate(doc_holder.paragraphs):
         if section.lower() in paragraph.text.lower():
             for entry in reversed(activity_log):
-                doc_holder.paragraphs[i+1].insert_paragraph_before(entry)
+                container = doc_holder.paragraphs[i+1].insert_paragraph_before()
+                container.style = "Activity Bullet"
+                execute  = container.add_run(entry)
+                execute.font.size = Pt(12)
             break
     doc_holder.save(findings_report)
 def main():
