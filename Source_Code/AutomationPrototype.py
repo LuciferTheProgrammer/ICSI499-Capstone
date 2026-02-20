@@ -39,4 +39,5 @@ def automated_testing_activity(technical_report):
 
 def main():
     automated_testing_activity(technical_report)
-main()
+if __name__ == "__main__":
+    main()
