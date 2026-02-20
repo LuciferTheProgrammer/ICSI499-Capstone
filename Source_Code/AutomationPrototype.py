@@ -9,8 +9,8 @@ activity_report = input("Please enter the file path for Activity Report: ")
 #technical_report = input("Please enter the file path for Technical Report: ")
 findings_report = input("Please enter the file path for Findings Report: ")
 
-def automated_testing_activity(technical_report):
-    table_container = camelot.read_pdf(technical_report, pages="3-7", flavor="lattice")
+def automated_testing_activity(activity_report):
+    table_container = camelot.read_pdf(activity_report, pages="3-7", flavor="lattice")
     activity_log = []
 
     for entry in table_container:
@@ -38,11 +38,6 @@ def automated_testing_activity(technical_report):
     print("✅ Document saved.")
 
 def main():
-<<<<<<< HEAD
-    automated_testing_activity(technical_report)
+    automated_testing_activity(activity_report)
 if __name__ == "__main__":
     main()
-=======
-    automated_testing_activity(activity_report)
-main()
->>>>>>> 13cacf2 (Updates)
