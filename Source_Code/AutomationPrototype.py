@@ -4,9 +4,9 @@ import camelot
 from docx import Document
 from docx.shared import Pt
 
-technical_report = input("Please enter the file path for Technical Report: ")
+activity_report = input("Please enter the file path for Activity Report: ")
 #executive_report = input("Please enter the file path for Executive Report: ")
-#activity_report = input("Please enter the file path for Activity Report: ")
+#technical_report = input("Please enter the file path for Technical Report: ")
 findings_report = input("Please enter the file path for Findings Report: ")
 
 def automated_testing_activity(technical_report):
@@ -31,13 +31,18 @@ def automated_testing_activity(technical_report):
                 container = doc_holder.paragraphs[i+1].insert_paragraph_before()
                 container.style = "Activity Bullet"
                 execute  = container.add_run(entry)
-                execute.font.size = Pt(12)
+                execute.font.size = Pt(8.5)
             break
     print("✅ All events pasted.")
     doc_holder.save(findings_report)
     print("✅ Document saved.")
 
 def main():
+<<<<<<< HEAD
     automated_testing_activity(technical_report)
 if __name__ == "__main__":
     main()
+=======
+    automated_testing_activity(activity_report)
+main()
+>>>>>>> 13cacf2 (Updates)

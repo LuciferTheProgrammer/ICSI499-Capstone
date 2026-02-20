@@ -1,0 +1,3 @@
+python -m pip install python-docx
+python -m pip install camelot-py
+python -m pip install pdfplumber
