@@ -4,10 +4,15 @@ import camelot
 from camelot.io import read_pdf
 from docx import Document
 from docx.shared import Pt
+import pandas as pd
+from typing import Union, Literal
+from dataclasses import dataclass
 
 # default paths we should be using for our reports, i.e. ./Reports
 DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
 DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
+DEFAULT_GLOSSARY_PATH: str = "./Reports/OrbitalFire-Glossary.csv"
+DEFAULT_TECHNICAL_REPORT_PATH: str = "./Reports/OrbitalFire-TechnicalReportDemo.pdf"
 
 """
 Get the report paths via user input, returns a tuple of the paths we yield.
@@ -52,8 +57,48 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
     doc_holder.save(findings_report)
     print("✅ Document saved.")
 
+# related to the excel file
+def excelwork():
+    print("test")
+    glossary = pd.read_csv(DEFAULT_GLOSSARY_PATH)
+
+def locate_image_technical_report(technical_report: str):
+    # use pdf plumber for the other stuff, for the entries, we can get valid information
+    data = pdfplumber.open(technical_report)
+
+# type to classify our vulnerabilities
+type VulnerabilityRating = Union[Literal["Informational"], Literal["Low"], Literal["Medium"], Literal["High"], Literal["Critical"]]
+"""
+Determines if a table entry is a vulnerability rating, targeted for certain tables
+"""
+def isVulnerabilityRating(val: str) -> bool:
+    return val == "Informational" or val == "Low" or val == "Medium" or val == "High" or val == "Critical"
+
+@dataclass
+class VulnerabilityFrame:
+    discoveredName: str
+    rating: VulnerabilityRating
+"""
+Counts the number of severities inside of the technical report, helps get the final number we need
+in the findings report
+"""
+def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
+    table_container = read_pdf(technical_report, pages="3-6", flavor="lattice")
+    frames: list[VulnerabilityFrame] = []
+    # iterate over entries, find the table containing vuln classifications in frame[2], very targeted
+    for entry in table_container:
+        for frame in entry.df.values.tolist():
+            if(len(frame) >= 3 and isVulnerabilityRating(frame[2])):
+                frames.append(VulnerabilityFrame(discoveredName=frame[0], rating=frame[2]))
+                print(f"vuln detected: {frame[2]}")
+    return frames
+
 def main() -> None:
-    activity_report, findings_report = getReports()
-    automated_testing_activity(activity_report, findings_report)
+    # activity_report, findings_report = getReports()
+    # automated_testing_activity(activity_report, findings_report)
+    # locate_image_technical_report(DEFAULT_TECHNICAL_REPORT_PATH)
+    ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
+    print(f"we have {len(ratings)} vulnerabilities")
+    print(ratings)
 if __name__ == "__main__":
     main()
