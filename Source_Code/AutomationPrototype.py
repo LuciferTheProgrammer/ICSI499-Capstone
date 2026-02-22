@@ -1,6 +1,7 @@
 # Automation Prototype source code.
 import pdfplumber
 import camelot
+from camelot.io import read_pdf
 from docx import Document
 from docx.shared import Pt
 
@@ -18,10 +19,13 @@ def getReports() -> tuple[str, str]:
     findings_report = input("Please enter the file path for Findings Report: ")
     return (activity_report, findings_report)
 
+"""
+Find all testing from the activity report, and append it to the findings report.
+"""
 def automated_testing_activity(activity_report: str, findings_report: str) -> None:
     print(f"activity report path {activity_report}")
     print(f"findings report path {findings_report}")
-    table_container = camelot.read_pdf(activity_report, pages="3-7", flavor="lattice")
+    table_container = read_pdf(activity_report, pages="3-7", flavor="lattice")
     activity_log = []
 
     for entry in table_container:
