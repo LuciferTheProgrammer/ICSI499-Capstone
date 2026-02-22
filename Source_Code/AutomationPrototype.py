@@ -4,9 +4,13 @@ import camelot
 from docx import Document
 from docx.shared import Pt
 
-DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/ActivityReport.pdf" # standardize the paths
-DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/FindingsReport.pdf" # if we're creating the report
+# default paths we should be using for our reports, i.e. ./Reports
+DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
+DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
 
+"""
+Get the report paths via user input, returns a tuple of the paths we yield.
+"""
 def getReports() -> tuple[str, str]:
     activity_report: str = input("Please enter the file path for Activity Report: ")
     #executive_report = input("Please enter the file path for Executive Report: ")
@@ -15,6 +19,8 @@ def getReports() -> tuple[str, str]:
     return (activity_report, findings_report)
 
 def automated_testing_activity(activity_report: str, findings_report: str) -> None:
+    print(f"activity report path {activity_report}")
+    print(f"findings report path {findings_report}")
     table_container = camelot.read_pdf(activity_report, pages="3-7", flavor="lattice")
     activity_log = []
 
