@@ -13,6 +13,7 @@ DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pd
 DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
 DEFAULT_GLOSSARY_PATH: str = "./Reports/OrbitalFire-Glossary.csv"
 DEFAULT_TECHNICAL_REPORT_PATH: str = "./Reports/OrbitalFire-TechnicalReportDemo.pdf"
+DEFAULT_EXECUTIVE_REPORT_PATH: str = "./Reports/OrbitalFire-ExecutiveReportDemo.pdf"
 
 """
 Get the report paths via user input, returns a tuple of the paths we yield.
@@ -57,6 +58,94 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
     doc_holder.save(findings_report)
     print("✅ Document saved.")
 
+def assessment_results(executive_report: str, findings_report: str) -> None:
+    collection = []
+    tabular = camelot.read_pdf(executive_report, pages="6", flavor="lattice", process_background=True, line_scale=40)
+    if tabular.n == 0:
+        print("No target tables for Engagement Results Summary found - page 6")
+        return
+    container = None
+    for i in tabular:
+        data_container = i.df
+        flatten = " ".join(data_container.astype(str).values.flatten()).lower()
+        if "category" in flatten and "summary" in flatten:
+            container = data_container
+            break
+    if container is None:
+        print("Found target table, but not Engagement Results Summary {Category + Summary} - page 6")
+        return
+    header_index = None
+    length_target = len(container)
+    for row in range(length_target):
+        row_entry = " ".join([str(x).strip().lower() for x in container.iloc[row].tolist()])
+        if "category" in row_entry and "summary" in row_entry:
+            header_index = row
+            break
+    if header_index is None:
+        print("Could not located header index inside detected target table")
+        return
+    raw_data = container.iloc[header_index + 1:].values.tolist()
+    category_cur = ""
+    summary_cur = ""
+    for i in raw_data:
+        length = len(i)
+        category = (i[0] if length > 0 else "")
+        summary_1 = (i[1] if length > 1 else "")
+        summary_2 = (i[2] if length > 2 else "")
+        parts = []
+        if length > 1 and str(summary_1).strip():
+            parts.append(str(summary_1).strip())
+        if length > 2 and str(summary_2).strip():
+            parts.append(str(summary_2).strip())
+        cleaned_sum = " ".join(parts).strip()
+        category_final = str(category).replace("\n", " ").strip()
+        summary_final = str(cleaned_sum).replace("\n", " ").strip()
+        if category_final:
+            if category_cur and summary_cur:
+                new_category = category_cur.strip()
+                new_summary = summary_cur.strip()
+                collection.append((new_category, new_summary))
+                len_collection = len(collection)
+                if len_collection == 5:
+                    break
+            category_cur = category_final
+            if summary_final:
+                summary_cur = summary_final
+            else:
+                summary_cur = ""
+            continue
+        if category_cur and summary_final:
+            summary_cur = (summary_cur + " " + summary_final).strip() if summary_cur else summary_final
+    len_collection = len(collection)
+    if len_collection < 5 and category_cur and summary_cur:
+        clean_cat = category_cur.strip()
+        clean_sum = summary_cur.strip()
+        collection.append((clean_cat, clean_sum))
+    doc = Document(findings_report)
+    mark = "ASSESSMENT RESULTS SUMMARY"
+    insert_data = None
+    for i, paragraph in enumerate(doc.paragraphs):
+        if mark.lower() in paragraph.text.lower():
+            insert_data = i
+            break
+    if insert_data is None:
+        print(f"The {mark} section not found")
+        return
+    position = doc.paragraphs[insert_data + 2]
+    for(category, summary) in reversed(collection):
+        holder_cat = position.insert_paragraph_before()
+        holder_cat.style = "Normal"
+        container_cat = holder_cat.add_run(category)
+        container_cat.bold = True
+        container_cat.font.size = Pt(13)
+        container_cat.font.name = "Corbel"
+        holder_sum = position.insert_paragraph_before()
+        container_sum = holder_sum.add_run(summary)
+        container_sum.font.size = Pt(12)
+        container_sum.font.name = "Corbel"
+    doc.save(findings_report)
+    print("✅ Assessment Results Summary saved.")
+
 # related to the excel file
 def excelwork():
     print("test")
@@ -95,7 +184,8 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
 
 def main() -> None:
     # activity_report, findings_report = getReports()
-    # automated_testing_activity(activity_report, findings_report)
+    automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    assessment_results(DEFAULT_EXECUTIVE_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     # locate_image_technical_report(DEFAULT_TECHNICAL_REPORT_PATH)
     ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     print(f"we have {len(ratings)} vulnerabilities")
