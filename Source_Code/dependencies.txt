@@ -3,3 +3,4 @@ python -m pip install camelot-py
 python -m pip install pdfplumber
 python -m pip install openai
 python -m pip install pymupdf
+OPENAI_API_KEY = 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
