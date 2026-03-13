@@ -4,6 +4,7 @@ import camelot
 from camelot.io import read_pdf
 from docx import Document
 from docx.shared import Pt
+import docx
 import pandas as pd
 from typing import Union, Literal
 from dataclasses import dataclass
@@ -91,7 +92,20 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
             if(len(frame) >= 3 and isVulnerabilityRating(frame[2])):
                 frames.append(VulnerabilityFrame(discoveredName=frame[0], rating=frame[2]))
                 print(f"vuln detected: {frame[2]}")
+    # csv: risk, controls
+    #      low    1
+    # etc
     return frames
+def put_counter_into_findings(findings_report: str, frames: list[VulnerabilityFrame]):
+    # convert to csv, and inject into findings
+    # findings, text box 2
+    doc = Document(findings_report)
+    print(len(doc.paragraphs))
+    print(len(doc.inline_shapes))
+    for shape in doc.inline_shapes:
+        print(shape.type)
+
+
 
 def main() -> None:
     # activity_report, findings_report = getReports()
@@ -100,5 +114,6 @@ def main() -> None:
     ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     print(f"we have {len(ratings)} vulnerabilities")
     print(ratings)
+    put_counter_into_findings(DEFAULT_FINDINGS_REPORT_PATH, [])
 if __name__ == "__main__":
     main()
