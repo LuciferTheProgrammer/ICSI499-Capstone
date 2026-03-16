@@ -14,9 +14,14 @@ from datetime import datetime
 from AutomationPrototype import (
     automated_testing_activity,
     severity_counter,
+    assessment_results,
+    recommendations,
+    DEFAULT_RECOMMENDATIONS_PATH,
+    DEFAULT_EXECUTIVE_REPORT_PATH,
     DEFAULT_ACTIVITY_REPORT_PATH,
     DEFAULT_FINDINGS_REPORT_PATH,
     DEFAULT_TECHNICAL_REPORT_PATH,
+
 )
 
 # ── customtkinter appearance defaults ─────────────────────────────────────────
@@ -86,12 +91,18 @@ class App(ctk.CTk):
         self.activity_var  = tk.StringVar(value=DEFAULT_ACTIVITY_REPORT_PATH)
         self.findings_var  = tk.StringVar(value=DEFAULT_FINDINGS_REPORT_PATH)
         self.technical_var = tk.StringVar(value=DEFAULT_TECHNICAL_REPORT_PATH)
+        self.executive_var = tk.StringVar(value=DEFAULT_EXECUTIVE_REPORT_PATH)
+        self.recommendation_var = tk.StringVar(value=DEFAULT_RECOMMENDATIONS_PATH)
 
         self._file_row(files_card, "Activity Report (PDF):",  self.activity_var,  [("PDF files", "*.pdf")], 1)
         self._file_row(files_card, "Findings Report (DOCX):", self.findings_var,  [("Word files", "*.docx")], 2)
         self._file_row(files_card, "Technical Report (PDF):", self.technical_var, [("PDF files", "*.pdf")], 3)
+        self._file_row(files_card, "Executive Report (PDF):", self.executive_var, [("PDF files", "*.pdf")], 4)
+        self._file_row(files_card, "Recommendation Summary (XLSX):", self.recommendation_var, [("XLSX files", "*.xlsx")], 5)
 
-        # padding at bottom of card
+
+
+    # padding at bottom of card
         ctk.CTkLabel(files_card, text="").grid(row=4, column=0)
 
         # ── Action buttons ────────────────────────────────────────────────────
@@ -108,6 +119,24 @@ class App(ctk.CTk):
         )
         self.run_testing_btn.grid(row=0, column=0, padx=(0, 10))
 
+        self.run_assessments_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Assessment Results",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_assessments,
+        )
+        self.run_assessments_btn.grid(row=0, column=1, padx=(0, 10))
+
+        self.run_recommendations_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Recommendation",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_recommendations,
+        )
+        self.run_recommendations_btn.grid(row=0, column=2, padx=(0, 10))
+
         self.count_vuln_btn = ctk.CTkButton(
             actions,
             text="🔍  Count Vulnerabilities",
@@ -117,7 +146,7 @@ class App(ctk.CTk):
             hover_color="#15803d",
             command=self._run_severity,
         )
-        self.count_vuln_btn.grid(row=0, column=1)
+        self.count_vuln_btn.grid(row=0, column=3)
 
         self.clear_btn = ctk.CTkButton(
             actions,
@@ -129,7 +158,7 @@ class App(ctk.CTk):
             hover_color=("gray85", "gray25"),
             command=self._clear_log,
         )
-        self.clear_btn.grid(row=0, column=2, padx=(10, 0))
+        self.clear_btn.grid(row=0, column=4, padx=(10, 0))
 
         # ── Log output ────────────────────────────────────────────────────────
         log_card = ctk.CTkFrame(content)
@@ -253,6 +282,54 @@ class App(ctk.CTk):
             finally:
                 self.after(0, lambda: self._set_busy(False))
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_assessments(self):
+        executive = self.executive_var.get().strip()
+        findings = self.findings_var.get().strip()
+        if not executive or not findings:
+            self._log("⚠  Please fill in both Executive Report and Findings Report paths.", "WARN")
+            return
+        self._log("── Assessment Results Summary ──", "HEADER")
+        self._log(f"Executive : {executive}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                assessment_results(executive, findings)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_recommendations(self):
+        recommendation = self.recommendation_var.get().strip()
+        findings = self.findings_var.get().strip()
+        if not recommendation or not findings:
+            self._log("⚠  Please fill in both Recommendation Summary and Findings Report paths.", "WARN")
+            return
+        self._log("── Recommendations ──", "HEADER")
+        self._log(f"Recommendations : {recommendation}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                recommendations(recommendation, findings)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
     def _run_severity(self):

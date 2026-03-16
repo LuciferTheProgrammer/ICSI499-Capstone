@@ -101,9 +101,7 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
                                         ]}]
     responses = client_call.responses.create(model="gpt-5-mini", input = task)
     try :
-        print(responses.output_text)
         extracted_info = json.loads(responses.output_text.strip())
-        print(json.dumps(extracted_info, indent = 2))
         item_collection = extracted_info.get("items", [])
     except Exception as e:
         print("OpenAI API call returned an error")
@@ -137,8 +135,8 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
     if pos is None:
         print(f"{s_header} was not found in {findings_report}")
         return
-    for k in range(pos, min(pos + 8, len(doc.paragraphs))):
-        print(k, repr(doc.paragraphs[k].text))
+    #for k in range(pos, min(pos + 8, len(doc.paragraphs))):
+        #print(k, repr(doc.paragraphs[k].text))
     add_pos = doc.paragraphs[pos + 2]
     for final_cat, final_sum in clean:
         cat_cont1 = add_pos.insert_paragraph_before()
