@@ -27,8 +27,8 @@ Get the report paths via user input, returns a tuple of the paths we yield.
 """
 def getReports() -> tuple[str, str]:
     activity_report: str = input("Please enter the file path for Activity Report: ")
-    #executive_report = input("Please enter the file path for Executive Report: ")
-    #technical_report = input("Please enter the file path for Technical Report: ")
+    executive_report = input("Please enter the file path for Executive Report: ")
+    technical_report = input("Please enter the file path for Technical Report: ")
     findings_report = input("Please enter the file path for Findings Report: ")
     return (activity_report, findings_report)
 
@@ -49,7 +49,6 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
             string3 = event[2]
             cleaned = string1 + " " + string2 + " " + string3
             activity_log.append(cleaned)
-    #        print(event)
     print("✅ All events copied.")
     doc_holder = Document(findings_report)
     section = "AUTOMATED TESTING ACTIVITY"
@@ -59,6 +58,7 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
                 container = doc_holder.paragraphs[i+1].insert_paragraph_before()
                 container.style = "Activity Bullet"
                 execute  = container.add_run(entry)
+                execute.font.name = "Corbel"
                 execute.font.size = Pt(8.5)
             break
     print("✅ All events pasted.")
@@ -135,8 +135,6 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
     if pos is None:
         print(f"{s_header} was not found in {findings_report}")
         return
-    #for k in range(pos, min(pos + 8, len(doc.paragraphs))):
-        #print(k, repr(doc.paragraphs[k].text))
     add_pos = doc.paragraphs[pos + 2]
     for final_cat, final_sum in clean:
         cat_cont1 = add_pos.insert_paragraph_before()
@@ -180,19 +178,40 @@ def recommendations(reco_findings: str, findings_report: str) -> None:
     increment = doc.paragraphs[pos + 1]
     for finding_num, risk_level, recommend_data in collections:
         body_cont1 = increment.insert_paragraph_before()
-        body_cont2 = body_cont1.add_run(f"{finding_num}. {recommend_data}")
+        body_cont1.style = "List Number 2"
+        left_component = recommend_data
+        right_component = ""
+        if " - " in recommend_data:
+            left_component, right_component = recommend_data.split(" - ", 1)
+        elif " – " in recommend_data:
+            left_component, right_component = recommend_data.split(" – ", 1)
+        elif "-" in recommend_data:
+            left_component, right_component = recommend_data.split("-", 1)
+        left_component = left_component.strip()
+        right_component = right_component.strip()
+
+        # body_cont2 = body_cont1.add_run(f"{finding_num}. {recommend_data}")
+        body_cont2 = body_cont1.add_run(left_component)
+        body_cont2.bold = True
         body_cont2.font.name = "Corbel"
         body_cont2.font.size = Pt(12)
-        body_cont1.paragraph_format.left_indent = Inches(0.4)
-        body_cont1.paragraph_format.first_line_indent = Inches(-0.2)
-        body_cont1.paragraph_format.space_before = Pt(0)
-        body_cont1.paragraph_format.space_after = Pt(0)
+        if right_component:
+            normalized_def = body_cont1.add_run(" - " + right_component)
+            normalized_def.font.name = "Corbel"
+            normalized_def.font.size = Pt(12)
+
+        #body_cont2.font.name = "Corbel"
+        #body_cont2.font.size = Pt(12)
+        #body_cont1.paragraph_format.left_indent = Inches(0.4)
+        #body_cont1.paragraph_format.first_line_indent = Inches(-0.2)
+        #body_cont1.paragraph_format.space_before = Pt(0)
+        #body_cont1.paragraph_format.space_after = Pt(0)
         rec_cont1 = increment.insert_paragraph_before()
         rec_cont2 = rec_cont1.add_run(f"Refer to {risk_level} Finding {finding_num}")
         rec_cont2.font.name = "Corbel"
         rec_cont2.font.size = Pt(12)
         rec_cont2.underline = True
-        rec_cont1.paragraph_format.left_indent = Inches(0.4)
+        rec_cont1.paragraph_format.left_indent = Inches(0.5)
         rec_cont1.paragraph_format.first_line_indent = Inches(0)
         rec_cont1.paragraph_format.space_before = Pt(0)
         rec_cont1.paragraph_format.space_after = Pt(6)
