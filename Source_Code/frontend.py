@@ -98,7 +98,7 @@ class App(ctk.CTk):
         self._file_row(files_card, "Findings Report (DOCX):", self.findings_var,  [("Word files", "*.docx")], 2)
         self._file_row(files_card, "Technical Report (PDF):", self.technical_var, [("PDF files", "*.pdf")], 3)
         self._file_row(files_card, "Executive Report (PDF):", self.executive_var, [("PDF files", "*.pdf")], 4)
-        self._file_row(files_card, "Recommendation Summary (XLSX):", self.recommendation_var, [("XLSX files", "*.xlsx")], 5)
+        self._file_row(files_card, "Findings Details & Recommendation Summary (XLSX):", self.recommendation_var, [("XLSX files", "*.xlsx")], 5)
 
 
 
@@ -269,11 +269,15 @@ class App(ctk.CTk):
         self._log(f"Activity : {activity}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
-
+        prompt = ctk.CTkInputDialog(text = "Enter the page range number of the Activity Log under Activity Report: ", title = "Activity Log")
+        page_range = prompt.get_input()
+        if not page_range:
+            self._log("⚠ Page range is required for Activity Log", "WARN")
+            return
         def worker():
             buf = self._capture_stdout()
             try:
-                automated_testing_activity(activity, findings)
+                automated_testing_activity(activity, findings, page_range)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -294,11 +298,15 @@ class App(ctk.CTk):
         self._log(f"Executive : {executive}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
-
+        prompt = ctk.CTkInputDialog(text = "Enter the page number of the Engagement Results Summary under Executive Report: ", title = "Assessment Results Summary")
+        page_number = prompt.get_input()
+        if not page_number:
+            self._log("⚠ Page number required for Assessment Results Summary", "WARN")
+            return
         def worker():
             buf = self._capture_stdout()
             try:
-                assessment_results(executive, findings)
+                assessment_results(executive, findings, page_number)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -310,19 +318,26 @@ class App(ctk.CTk):
 
     def _run_recommendations(self):
         recommendation = self.recommendation_var.get().strip()
+        technical = self.technical_var.get().strip()
         findings = self.findings_var.get().strip()
-        if not recommendation or not findings:
-            self._log("⚠  Please fill in both Recommendation Summary and Findings Report paths.", "WARN")
+
+        if not recommendation or not technical or not findings:
+            self._log("⚠  Please fill in Recommendation Summary, Technical Report, and Findings Report paths.", "WARN")
             return
         self._log("── Recommendations ──", "HEADER")
         self._log(f"Recommendations : {recommendation}", "INFO")
+        self._log(f"Technical: {technical}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
-
+        prompt = ctk.CTkInputDialog(text = "Enter the environment for Recommendation. For example, either 'Internal' or 'External': ", title = "Recommendation")
+        environment = prompt.get_input()
+        if not environment:
+            self._log("⚠ Environment is required for Recommendation", "WARN")
+            return
         def worker():
             buf = self._capture_stdout()
             try:
-                recommendations(recommendation, findings)
+                recommendations(recommendation, technical, findings, environment)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:

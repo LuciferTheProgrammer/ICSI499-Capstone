@@ -1,5 +1,6 @@
 # Automation Prototype source code.
 import base64
+import re
 import pdfplumber
 import camelot
 from camelot.io import read_pdf
@@ -35,12 +36,9 @@ def getReports() -> tuple[str, str]:
 """
 Find all testing from the activity report, and append it to the findings report.
 """
-def automated_testing_activity(activity_report: str, findings_report: str) -> None:
-    print(f"activity report path {activity_report}")
-    print(f"findings report path {findings_report}")
-    table_container = read_pdf(activity_report, pages="3-7", flavor="lattice")
+def automated_testing_activity(activity_report: str, findings_report: str, page_range: str) -> None:
+    table_container = read_pdf(activity_report, pages=page_range, flavor="lattice")
     activity_log = []
-
     for entry in table_container:
         sample = entry.df
         for event in sample.values.tolist():
@@ -55,7 +53,7 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
     for i, paragraph in enumerate(doc_holder.paragraphs):
         if section.lower() in paragraph.text.lower():
             for entry in reversed(activity_log):
-                container = doc_holder.paragraphs[i+1].insert_paragraph_before()
+                container = doc_holder.paragraphs[i + 1].insert_paragraph_before()
                 container.style = "Activity Bullet"
                 execute  = container.add_run(entry)
                 execute.font.name = "Corbel"
@@ -66,10 +64,12 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
     print("✅ Document saved.")
 
 # Populates the Assessment Results Summary section in the Findings Report.
-def assessment_results(executive_report: str, findings_report: str) -> None:
+def assessment_results(executive_report: str, findings_report: str, page: str) -> None:
     client_call = OpenAI(api_key = os.environ.get("OPENAI_API_KEY"))
     pdf = pymupdf.open(executive_report)
-    page_n = pdf[5]
+    page_int = int(page)
+    indexed = page_int - 1
+    page_n = pdf[indexed]
     pixels = page_n.get_pixmap(matrix=pymupdf.Matrix(2,2))
     image_size = pixels.tobytes("png")
     image_64 = base64.b64encode(image_size).decode("utf-8")
@@ -91,7 +91,7 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
                             - Merge/combine wrapped text into one summary per category.
                             - Ignore page titles and unrelated sections.
                             - Remove header rows like Category and Summary.
-                            - Keep maximum 5 items.
+                            - Keep the maximum 5 items.
                             - Do not invent or add new content.
                             """},
                                         {
@@ -149,48 +149,104 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
     doc.save(findings_report)
     print("✅ Assessment Results Summary saved.")
 
+
+def process_titles_rec(x ,y):
+    x = y.lower()
+    x = x.replace("\n", " ")
+    x = " ".join(x.split())
+    x = x.replace("–", "-").replace("—", "-")
+    x = x.strip()
+    return x
+
 # Populates the Recommendations section in the Findings Report.
-def recommendations(reco_findings: str, findings_report: str) -> None:
-    pointer = pd.read_excel(reco_findings, sheet_name="External")
-    collections = []
-    for k, entry in pointer.iterrows():
-        recommend_data = str(entry["Recommendation"]).strip()
-        risk_level  =str(entry["Risk Level"]).strip().title()
-        if recommend_data.lower() == "nan" or not recommend_data:
+def recommendations(recommendation_csv: str, technical_report: str, findings_report: str, environment: str) -> None:
+    #environment = input("Please select the environment type: 'Internal' or 'External': ")
+    data_container = pd.read_excel(recommendation_csv, sheet_name=environment)
+    recommendation_map = {}
+    for _, i in data_container.iterrows():
+        findings_title = i["Finding Title"]
+        recommendation_data = i["Recommendation"]
+        if findings_title is None:
             continue
-        if risk_level.lower() == "nan" or not risk_level:
+        if recommendation_data is None:
             continue
-        findings_num  = k + 1
-        collections.append((findings_num, risk_level, recommend_data))
-    if not collections:
-        print("No Recommendations found column")
-        return
+        findings_title = str(findings_title).strip()
+        recommendation_data = str(recommendation_data).strip()
+        if findings_title == "":
+            continue
+        if recommendation_data == "" or recommendation_data == "nan":
+            continue
+        cleaned_titles = ""
+        cleaned_titles = process_titles_rec(cleaned_titles, findings_title)
+        recommendation_map[cleaned_titles] = recommendation_data
+    pages_content = []
+    technical_finds = []
+    with pdfplumber.open(technical_report) as pdf:
+        for page in pdf.pages:
+            page_content = page.extract_text()
+            if not page_content:
+                continue
+            pages_content.append(page_content)
+            for entry in page_content.splitlines():
+                normalized = entry.strip()
+                if normalized == "":
+                    continue
+                matching = re.match(r"^(CRITICAL|HIGH|MEDIUM|LOW|INFORMATIONAL)\s+(.+)$", normalized, re.IGNORECASE)
+                if matching:
+                    status = matching.group(1).title()
+                    finding_title = matching.group(2).strip()
+                    if finding_title == "":
+                        continue
+                    cleaned_title = ""
+                    cleaned_title = process_titles_rec(cleaned_title, finding_title)
+                    technical_finds.append({"severity": status, "finding_title": finding_title, "cleaned_title": cleaned_title})
+    recommendations = []
+    viewed = set()
+    status_counter = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Informational": 0}
+    for finding in technical_finds:
+        processed_title = finding["cleaned_title"]
+        if processed_title in viewed:
+            continue
+        viewed.add(processed_title)
+        if processed_title not in recommendation_map:
+            print(f"No recommendation found for {finding['finding_title']}")
+            continue
+        status_counter[finding["severity"]] = status_counter[finding["severity"]] + 1
+        match = recommendation_map[processed_title]
+        recommendations.append({"severity": finding["severity"], "tracker_finding": status_counter[finding["severity"]], "finding_title": finding["finding_title"], "recommendation_data": match})
     doc = Document(findings_report)
-    pos = None
-    section_header = "DISCRETIONARY REMEDIATION"
-    for i, paragraph in enumerate(doc.paragraphs):
-        if section_header in paragraph.text.upper():
-            pos = i
+    position = None
+    landing_section = "DISCRETIONARY REMEDIATION"
+    for index, p in enumerate(doc.paragraphs):
+        if landing_section in p.text.upper():
+            position = index
             break
-    if pos is None:
-        print(f"{section_header} was not found in {findings_report}")
+    if position is None:
+        print(f"Recommendation section not found in {findings_report}")
         return
-    increment = doc.paragraphs[pos + 1]
-    for finding_num, risk_level, recommend_data in collections:
-        body_cont1 = increment.insert_paragraph_before()
-        body_cont1.style = "List Number 2"
-        left_component = recommend_data
+    len_paragraphs = len(doc.paragraphs)
+    increment_position = position + 1
+    if len_paragraphs > increment_position:
+        new_position = doc.paragraphs[increment_position]
+    else:
+        new_position = doc.paragraphs[position]
+
+    for i in recommendations:
+        status_holder = i["severity"]
+        tracker_holder = i["tracker_finding"]
+        data_holder = i["recommendation_data"]
+        left_component = data_holder
         right_component = ""
-        if " - " in recommend_data:
-            left_component, right_component = recommend_data.split(" - ", 1)
-        elif " – " in recommend_data:
-            left_component, right_component = recommend_data.split(" – ", 1)
-        elif "-" in recommend_data:
-            left_component, right_component = recommend_data.split("-", 1)
+        if " - " in data_holder:
+            left_component, right_component = data_holder.split(" - ", 1)
+        elif " – " in data_holder:
+            left_component, right_component = data_holder.split(" – ", 1)
+        elif "-" in data_holder:
+            left_component, right_component = data_holder.split("-", 1)
         left_component = left_component.strip()
         right_component = right_component.strip()
-
-        # body_cont2 = body_cont1.add_run(f"{finding_num}. {recommend_data}")
+        body_cont1 = new_position.insert_paragraph_before()
+        body_cont1.style = "List Number 2"
         body_cont2 = body_cont1.add_run(left_component)
         body_cont2.bold = True
         body_cont2.font.name = "Corbel"
@@ -199,15 +255,8 @@ def recommendations(reco_findings: str, findings_report: str) -> None:
             normalized_def = body_cont1.add_run(" - " + right_component)
             normalized_def.font.name = "Corbel"
             normalized_def.font.size = Pt(12)
-
-        #body_cont2.font.name = "Corbel"
-        #body_cont2.font.size = Pt(12)
-        #body_cont1.paragraph_format.left_indent = Inches(0.4)
-        #body_cont1.paragraph_format.first_line_indent = Inches(-0.2)
-        #body_cont1.paragraph_format.space_before = Pt(0)
-        #body_cont1.paragraph_format.space_after = Pt(0)
-        rec_cont1 = increment.insert_paragraph_before()
-        rec_cont2 = rec_cont1.add_run(f"Refer to {risk_level} Finding {finding_num}")
+        rec_cont1 = new_position.insert_paragraph_before()
+        rec_cont2 = rec_cont1.add_run(f"Refer to {status_holder} Finding {tracker_holder}")
         rec_cont2.font.name = "Corbel"
         rec_cont2.font.size = Pt(12)
         rec_cont2.underline = True
@@ -258,7 +307,8 @@ def main() -> None:
     # activity_report, findings_report = getReports()
     automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     assessment_results(DEFAULT_EXECUTIVE_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
-    recommendations(DEFAULT_RECOMMENDATIONS_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    #recommendations(DEFAULT_RECOMMENDATIONS_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    recommendations(DEFAULT_RECOMMENDATIONS_PATH, DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     # locate_image_technical_report(DEFAULT_TECHNICAL_REPORT_PATH)
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
