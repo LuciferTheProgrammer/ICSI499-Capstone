@@ -16,6 +16,7 @@ from AutomationPrototype import (
     severity_counter,
     assessment_results,
     recommendations,
+    appendix,
     DEFAULT_RECOMMENDATIONS_PATH,
     DEFAULT_EXECUTIVE_REPORT_PATH,
     DEFAULT_ACTIVITY_REPORT_PATH,
@@ -137,6 +138,15 @@ class App(ctk.CTk):
         )
         self.run_recommendations_btn.grid(row=0, column=2, padx=(0, 10))
 
+        self.run_appendix_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Appendix",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_appendix,
+        )
+        self.run_appendix_btn.grid(row=0, column=3, padx=(0, 10))
+
         self.count_vuln_btn = ctk.CTkButton(
             actions,
             text="🔍  Count Vulnerabilities",
@@ -146,7 +156,7 @@ class App(ctk.CTk):
             hover_color="#15803d",
             command=self._run_severity,
         )
-        self.count_vuln_btn.grid(row=0, column=3)
+        self.count_vuln_btn.grid(row=0, column=4)
 
         self.clear_btn = ctk.CTkButton(
             actions,
@@ -158,7 +168,7 @@ class App(ctk.CTk):
             hover_color=("gray85", "gray25"),
             command=self._clear_log,
         )
-        self.clear_btn.grid(row=0, column=4, padx=(10, 0))
+        self.clear_btn.grid(row=0, column=5, padx=(10, 0))
 
         # ── Log output ────────────────────────────────────────────────────────
         log_card = ctk.CTkFrame(content)
@@ -338,6 +348,29 @@ class App(ctk.CTk):
             buf = self._capture_stdout()
             try:
                 recommendations(recommendation, technical, findings, environment)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_appendix(self):
+        technical = self.technical_var.get().strip()
+        findings = self.findings_var.get().strip()
+        if not technical or not findings:
+            self._log("⚠  Please fill in both Technical Report and Findings Report paths.", "WARN")
+            return
+        self._log("── Appendix ──", "HEADER")
+        self._log(f"Technical: {technical}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                appendix(technical, findings)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:

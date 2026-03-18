@@ -211,7 +211,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
             continue
         viewed.add(processed_title)
         if processed_title not in recommendation_map:
-            print(f"No recommendation found for {finding['finding_title']}")
+            #print(f"No recommendation found for {finding['finding_title']}")
             continue
         status_counter[finding["severity"]] = status_counter[finding["severity"]] + 1
         match = recommendation_map[processed_title]
@@ -333,7 +333,6 @@ def appendix(technical_report: str, findings_report: str) -> None:
         print(f"❌ {text_2} can't be found")
         return
     data_container = doc.paragraphs[idx_screenshot]
-    #data_container.text = ""
     image_struc = add_new_paragraph(data_container)
     image = image_struc.add_run()
     image.add_picture(image_container, width=Inches(6.5))
