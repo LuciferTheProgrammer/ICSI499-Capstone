@@ -9,11 +9,12 @@ from typing import Union, Literal
 from dataclasses import dataclass
 
 # default paths we should be using for our reports, i.e. ./Reports
-DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
-DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
-DEFAULT_GLOSSARY_PATH: str = "./Reports/OrbitalFire-Glossary.csv"
-DEFAULT_TECHNICAL_REPORT_PATH: str = "./Reports/OrbitalFire-TechnicalReportDemo.pdf"
-DEFAULT_EXECUTIVE_REPORT_PATH: str = "./Reports/OrbitalFire-ExecutiveReportDemo.pdf"
+DEFAULT_ACTIVITY_REPORT_PATH = "./Source_Code/Reports/OrbitalFire-ActivityReportDemo.pdf"
+DEFAULT_FINDINGS_REPORT_PATH = "./Source_Code/Reports/Sample499/FindingsReportTest.docx"
+DEFAULT_GLOSSARY_PATH = "./Source_Code/Reports/OrbitalFire-Glossary.csv"
+DEFAULT_TECHNICAL_REPORT_PATH = "./Source_Code/Reports/OrbitalFire-TechnicalReportDemo.pdf"
+DEFAULT_EXECUTIVE_REPORT_PATH = "./Source_Code/Reports/OrbitalFire-ExecutiveReportDemo.pdf"
+DEFAULT_FINDINGS_DETAILS_PATH = "./Source_Code/Reports/FindingsDetailsAndRecommendations.xlsx"
 
 """
 Get the report paths via user input, returns a tuple of the paths we yield.
@@ -156,7 +157,7 @@ def locate_image_technical_report(technical_report: str):
     data = pdfplumber.open(technical_report)
 
 # type to classify our vulnerabilities
-type VulnerabilityRating = Union[Literal["Informational"], Literal["Low"], Literal["Medium"], Literal["High"], Literal["Critical"]]
+VulnerabilityRating = Union[Literal["Informational"], Literal["Low"], Literal["Medium"], Literal["High"], Literal["Critical"]]
 """
 Determines if a table entry is a vulnerability rating, targeted for certain tables
 """
@@ -182,10 +183,95 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 print(f"vuln detected: {frame[2]}")
     return frames
 
+def normalize_title(title: str) -> str:
+    return " ".join(str(title).strip().lower().split())
+
+def load_findings_lookup(details_excel: str, sheet_name: str = "External") -> dict:
+    df = pd.read_excel(details_excel, sheet_name=sheet_name)
+
+    # clean column names
+    df.columns = [str(col).strip() for col in df.columns]
+
+    lookup = {}
+
+    for _, row in df.iterrows():
+        finding_title = str(row.get("Finding Title", "")).strip()
+        if not finding_title:
+            continue
+
+        key = normalize_title(finding_title)
+
+        lookup[key] = {
+            "title": finding_title,
+            "description": str(row.get("Finding Description", "")).strip(),
+            "risk": str(row.get("Risk Level", "")).strip(),
+            "recommendation": str(row.get("Recommendation", "")).strip(),
+        }
+
+    return lookup
+
+def finding_details(technical_report: str, findings_report: str, details_excel: str, sheet_name: str = "External") -> None:
+    vulnerabilities = severity_counter(technical_report)
+    lookup = load_findings_lookup(details_excel, sheet_name=sheet_name)
+
+    doc = Document(findings_report)
+    section = "FINDINGS DETAILS"
+
+    insert_index = None
+    for i, paragraph in enumerate(doc.paragraphs):
+        if section.lower() in paragraph.text.lower():
+            insert_index = i
+            break
+
+    if insert_index is None:
+        print(f"The {section} section was not found.")
+        return
+
+    insert_position = doc.paragraphs[insert_index + 1]
+
+    for vuln in reversed(vulnerabilities):
+        key = normalize_title(vuln.discoveredName)
+
+        if key in lookup:
+            detail = lookup[key]
+
+            # Title
+            title_para = insert_position.insert_paragraph_before()
+            title_run = title_para.add_run(detail["title"])
+            title_run.bold = True
+            title_run.font.size = Pt(13)
+
+            # Risk Level
+            risk_para = insert_position.insert_paragraph_before()
+            risk_run = risk_para.add_run(f"Risk Level: {detail['risk']}")
+            risk_run.bold = True
+            risk_run.font.size = Pt(11)
+
+            # Description
+            desc_para = insert_position.insert_paragraph_before()
+            desc_para.add_run("Finding Description: ").bold = True
+            desc_para.add_run(detail["description"])
+
+            # Recommendation
+            rec_para = insert_position.insert_paragraph_before()
+            rec_para.add_run("Recommendation: ").bold = True
+            rec_para.add_run(detail["recommendation"])
+
+            # spacing
+            insert_position.insert_paragraph_before().add_run("")
+
+        else:
+            print(f"⚠ No match found for: {vuln.discoveredName}")
+
+    doc.save(findings_report)
+    print("✅ Findings Details saved.")
+
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     assessment_results(DEFAULT_EXECUTIVE_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_FINDINGS_DETAILS_PATH, "External")
     # locate_image_technical_report(DEFAULT_TECHNICAL_REPORT_PATH)
     ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     print(f"we have {len(ratings)} vulnerabilities")
