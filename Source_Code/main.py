@@ -1,5 +1,6 @@
 from requirements.appendix import appendix
 from requirements.severitycounter import severity_counter
+from requirements.findingsdetails import finding_details
 # import paths from requirements by requirements.[file name] import [function]
 
 
@@ -21,5 +22,7 @@ def main() -> None:
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
     # appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
+
 if __name__ == "__main__":
     main()
