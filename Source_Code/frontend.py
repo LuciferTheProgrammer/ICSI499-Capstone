@@ -292,7 +292,7 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
-                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
             finally:
                 self.after(0, lambda: self._set_busy(False))
 
@@ -321,7 +321,7 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
-                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
             finally:
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
@@ -352,7 +352,7 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
-                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
             finally:
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
@@ -375,7 +375,7 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
-                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
             finally:
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
@@ -405,7 +405,7 @@ class App(ctk.CTk):
                     self.after(0, lambda f=frame: self._log(f"  [{f.rating}]  {f.discoveredName}", "PLAIN"))
             except Exception as exc:
                 self._restore_stdout(buf)
-                self.after(0, lambda: self._log(f"❌ Error: {exc}", "WARN"))
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
             finally:
                 self.after(0, lambda: self._set_busy(False))
 
@@ -417,7 +417,6 @@ class App(ctk.CTk):
         new_mode = "dark" if current == "light" else "light"
         ctk.set_appearance_mode(new_mode)
         self.theme_btn.configure(text="☀  Light Mode" if new_mode == "dark" else "🌙  Dark Mode")
-
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
