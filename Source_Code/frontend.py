@@ -17,12 +17,12 @@ from AutomationPrototype import (
     assessment_results,
     recommendations,
     appendix,
+    finding_details,
     DEFAULT_RECOMMENDATIONS_PATH,
     DEFAULT_EXECUTIVE_REPORT_PATH,
     DEFAULT_ACTIVITY_REPORT_PATH,
     DEFAULT_FINDINGS_REPORT_PATH,
     DEFAULT_TECHNICAL_REPORT_PATH,
-
 )
 
 # ── customtkinter appearance defaults ─────────────────────────────────────────
@@ -147,6 +147,15 @@ class App(ctk.CTk):
         )
         self.run_appendix_btn.grid(row=0, column=3, padx=(0, 10))
 
+        self.run_findings_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Findings Details",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_findings,
+        )
+        self.run_findings_btn.grid(row=0, column=4, padx=(0, 10))
+
         self.count_vuln_btn = ctk.CTkButton(
             actions,
             text="🔍  Count Vulnerabilities",
@@ -156,7 +165,7 @@ class App(ctk.CTk):
             hover_color="#15803d",
             command=self._run_severity,
         )
-        self.count_vuln_btn.grid(row=0, column=4)
+        self.count_vuln_btn.grid(row=1, column=0, padx=(0, 10), pady=(10, 0), sticky="w")
 
         self.clear_btn = ctk.CTkButton(
             actions,
@@ -168,7 +177,7 @@ class App(ctk.CTk):
             hover_color=("gray85", "gray25"),
             command=self._clear_log,
         )
-        self.clear_btn.grid(row=0, column=5, padx=(10, 0))
+        self.clear_btn.grid(row=1, column=1, padx=(0, 10), pady=(10, 0), sticky="w")
 
         # ── Log output ────────────────────────────────────────────────────────
         log_card = ctk.CTkFrame(content)
@@ -265,7 +274,12 @@ class App(ctk.CTk):
     def _set_busy(self, busy: bool):
         state = "disabled" if busy else "normal"
         self.run_testing_btn.configure(state=state)
+        self.run_assessments_btn.configure(state=state)
+        self.run_recommendations_btn.configure(state=state)
+        self.run_appendix_btn.configure(state=state)
+        self.run_findings_btn.configure(state=state)
         self.count_vuln_btn.configure(state=state)
+        self.clear_btn.configure(state=state)
         self.status_var.set("Running…" if busy else "Done.")
 
     # ── Actions ───────────────────────────────────────────────────────────────
@@ -371,6 +385,32 @@ class App(ctk.CTk):
             buf = self._capture_stdout()
             try:
                 appendix(technical, findings)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_findings(self):
+        find_info = self.recommendation_var.get().strip()
+        technical = self.technical_var.get().strip()
+        findings = self.findings_var.get().strip()
+
+        if not find_info or not technical or not findings:
+            self._log("⚠  Please fill in Findings Summary, Technical Report, and Findings Report paths.", "WARN")
+            return
+        self._log("── Findings Details ──", "HEADER")
+        self._log(f"Findings Details: {find_info}", "INFO")
+        self._log(f"Technical: {technical}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                finding_details(technical, findings, find_info, "External")
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
