@@ -11,10 +11,13 @@ from typing import Union, Literal
 from dataclasses import dataclass
 import os
 import json
+
+from networkx.algorithms.threshold import right_d_threshold_sequence
 from openai import OpenAI
 import pymupdf
 from docx.text.paragraph import Paragraph
 from docx.oxml import OxmlElement
+from PIL import Image
 
 
 # default paths we should be using for our reports, i.e. ./Reports
@@ -463,6 +466,275 @@ def finding_details(technical_report: str, findings_report: str, details_excel: 
     doc.save(findings_report)
     print("✅ Findings Details saved.")
 
+def resize_image(p, file_image: str, container: Document, chosen_depth: float = 7.5) -> None:
+    beginning = container.sections[0]
+    contain_width = beginning.page_width.inches - beginning.left_margin.inches - beginning.right_margin.inches - 0.2
+    with Image.open(file_image) as image:
+        pixel_w, pixel_h = image.size
+        ratio = pixel_w/pixel_h
+        width = contain_width
+        height = width/ratio
+        if chosen_depth < height:
+            height = chosen_depth
+            width = height * ratio
+        p.add_run().add_picture(file_image, width=Inches(width), height=Inches(height))
+
+def construct_portion(p, top, bottom):
+    left_side = 36
+    right_side = p.rect.width - 36
+    table_collector = []
+    try:
+        detected_table = p.find_tables()
+        if detected_table and detected_table.tables:
+            for table in detected_table.tables:
+                x0, y0, x1, y1 = table.bbox
+                holder = pymupdf.Rect(x0, y0, x1, y1)
+                if holder.y0 <= bottom and holder.y1 >= top:
+                    if holder.width >= 40 and holder.height >= 12:
+                        table_collector.append(holder)
+    except Exception as e:
+        pass
+    text = p.get_text("words")
+    for i in text:
+        x0, y0, x1, y1, container = i[:5]
+        container = str(container).strip()
+        if not container:
+            continue
+        if y1 <= bottom and y0 >= top:
+            res = pymupdf.Rect(x0, y0, x1, y1)
+            table_collector.append(res)
+    if table_collector:
+        x0_vals = []
+        y0_vals = []
+        x1_vals = []
+        y1_vals = []
+        for row0 in table_collector:
+            x0_vals.append(row0.x0)
+        x0 = max(left_side, (min(x0_vals) - 6))
+        for row1 in table_collector:
+            y0_vals.append(row1.y0)
+        y0 = max(top, (min(y0_vals) - 4))
+        for row2 in table_collector:
+            x1_vals.append(row2.x1)
+        x1 = min(right_side, (max(x1_vals) + 6))
+        for row3 in table_collector:
+            y1_vals.append(row3.y1)
+        y1 = min(bottom, (max(y1_vals) + 4))
+        final = pymupdf.Rect(x0, y0, x1, y1)
+        return final
+    default = pymupdf.Rect(left_side, top, right_side, bottom)
+    return default
+
+def modified_findings_details(technical_path: str, findings_report: str, details_path: str, sheetname: str = "External") -> None:
+    dataframe = pd.read_excel(details_path, sheet_name=sheetname)
+    columns = []
+    for i in dataframe.columns:
+        clean = str(i).strip()
+        columns.append(clean)
+    dataframe.columns = columns
+    find_mapping = {}
+    for _, i in dataframe.iterrows():
+        title_holder = str(i.get("Finding Title", "")).strip()
+        description_holder = str(i.get("Finding Description", "")).strip()
+        risk_holder = str(i.get("Risk Level", "")).strip()
+        if title_holder.lower() == "nan" or title_holder == "":
+            continue
+        if description_holder.lower() == "nan" or description_holder == "":
+            continue
+        if risk_holder.lower() == "nan" or risk_holder == "":
+            continue
+        new_title = " ".join(title_holder.lower().replace("\n" ," ").replace("–", "-"). replace("—", "-").split()).strip()
+        find_mapping[new_title] = {"description": description_holder, "risk": risk_holder.title()}
+    pdf = pymupdf.open(technical_path)
+    severities = ["CRITICAL", "HIGH" ,"MEDIUM", "LOW"]
+    finds = []
+    viewed_titles = set()
+    len_pdf = len(pdf)
+    for page_number in range(len_pdf):
+        p = pdf[page_number]
+        content = p.get_text("text")
+        lines = []
+        for i in content.splitlines():
+            clean = i.strip()
+            if clean:
+                lines.append(clean)
+        counter = 0
+        length = len(lines)
+        while counter < length:
+            line = lines[counter]
+            matching = re.match(r"^(CRITICAL|HIGH|MEDIUM|LOW)\s+(.+)$", line, re.IGNORECASE)
+            if matching:
+                SEVERITY = matching.group(1).title()
+                title = matching.group(2).strip()
+                cleaned_title = " ".join(title.lower().replace("\n" ," ").replace("–", "-").replace("—", "-").split()).strip()
+                page_content_u = content.upper()
+                detail_p = ("AFFECTED NODES" in page_content_u or "OBSERVATION" in page_content_u or "RECOMMENDATION" in page_content_u or "EVIDENCE" in page_content_u)
+                if cleaned_title in find_mapping and cleaned_title not in viewed_titles and detail_p:
+                    viewed_titles.add(cleaned_title)
+                    finds.append({"SEVERITY": find_mapping[cleaned_title]["risk"], "title": title, "description": find_mapping[cleaned_title]["description"], "page": page_number})
+                counter += 1
+                continue
+            if line.upper() in severities and (counter + 1) < length:
+                SEVERITY = line.title()
+                title = lines[counter + 1].strip()
+                cleaned_title = " ".join(title.lower().replace("\n" ," ").replace("–", "-").replace("—", "-").split()).strip()
+                page_content_u = content.upper()
+                detail_p = ("AFFECTED NODES" in page_content_u or "OBSERVATION" in page_content_u or "RECOMMENDATION" in page_content_u or "EVIDENCE" in page_content_u)
+                if cleaned_title in find_mapping and cleaned_title not in viewed_titles and detail_p:
+                    viewed_titles.add(cleaned_title)
+                    finds.append({"SEVERITY": find_mapping[cleaned_title]["risk"], "title": title, "description": find_mapping[cleaned_title]["description"], "page": page_number})
+                counter += 2
+                continue
+            counter += 1
+    image_directory = "./Reports/Findings_Details"
+    os.makedirs(image_directory, exist_ok=True)
+    for i, find in enumerate(finds, start=1):
+        find["affected_nodes_table"] = None
+        find["evidence_table"] = None
+        starting = find["page"]
+        length_pdf = len(pdf)
+        up_bound = min(starting + 4, length_pdf)
+        for x in range(starting, up_bound):
+            page = pdf[x]
+            if find["affected_nodes_table"] is None:
+                affected = page.search_for("Affected Nodes")
+                if not affected:
+                    affected = page.search_for("AFFECTED NODES")
+                if affected:
+                    top = affected[0].y1 + 5
+                    bottom = page.rect.height - 36
+                    holder_val = ["Recommendation", "Reproduction Steps", "References", "Evidence"] + severities
+                    connections = []
+                    for entry in holder_val:
+                        collect = page.search_for(entry)
+                        for k in collect:
+                            if k.y0 > top:
+                                result = k.y0 - 5
+                                connections.append(result)
+                    if connections:
+                        bottom = min(connections)
+                    if top < bottom:
+                        """
+                        holder = page.get_drawings()
+                        left = 36
+                        right = page.rect.width - 36
+                        gather = []
+                        for h in holder:
+                            take = h.get("rect")
+                            if take and take.y1 <= bottom + 10 and take.y0 >= top - 10:
+                                gather.append(take)
+                        if gather:
+                            right = max(c.x1 for c in gather) + 5
+                            left = min(c.x0 for c in gather) - 5
+                        """
+
+                        crop = construct_portion(page, top, bottom)
+                        file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
+                        page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
+                        find["affected_nodes_table"] = file_path_affected
+            if find["evidence_table"] is None:
+                evidence = page.search_for("Evidence")
+                if not evidence:
+                    evidence = page.search_for("EVIDENCE")
+                if evidence:
+                    top = evidence[0].y1 + 5
+                    bottom = page.rect.height - 36
+                    connections = []
+                    FLAG = severities + ["Appendix" ,"APPENDIX"]
+                    for marker in FLAG:
+                        container = page.search_for(marker)
+                        for k in container:
+                            if k.y0 > top:
+                                result = k.y0 - 5
+                                connections.append(result)
+                    if connections:
+                        bottom = min(connections)
+                    if top < bottom:
+                        """
+                        holder = page.get_drawings()
+                        left = 36
+                        right = page.rect.width - 36
+                        gather = []
+                        for h in holder:
+                            take = h.get("rect")
+                            if take and take.y1 <= bottom + 10 and take.y0 >= top - 10:
+                                gather.append(take)
+                        if gather:
+                            right = max(c.x1 for c in gather) + 5
+                            left = min(c.x0 for c in gather) - 5
+                        """
+                        #crop = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
+                        crop = construct_portion(page, top, bottom)
+                        file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
+                        page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
+                        find["evidence_table"] = file_path_evidence
+    pdf.close()
+    doc = Document(findings_report)
+    STATUS = {"Critical": [], "High": [], "Medium": [], "Low": []}
+    for entry in finds:
+        if entry["SEVERITY"] in STATUS:
+            content = entry["SEVERITY"]
+            STATUS[content].append(entry)
+    collector_status = ["Critical", "High", "Medium", "Low"]
+    for entry in collector_status:
+        cur_finds = STATUS[entry]
+        if not cur_finds:
+            continue
+        position = None
+        move_index = None
+        for i, paragraph in enumerate(doc.paragraphs):
+            if paragraph.text.strip().upper() == entry.upper():
+                position = paragraph
+                move_index = i
+                break
+        if position is None:
+            print(f"Severity header {entry} can't found")
+            continue
+        modified_index = move_index + 1
+        length_doc_p = len(doc.paragraphs)
+        upper = min(move_index + 5, length_doc_p)
+        for sample in range(modified_index, upper):
+            data = doc.paragraphs[sample].text.strip().lower()
+            EMPTY = ["none", "• none", "o none", "· none"]
+            if data in EMPTY:
+                element = doc.paragraphs[sample]._element
+                element.getparent().remove(element)
+                break
+        insert_after = position
+        counting = 1
+        for i in cur_finds:
+            para1 = add_new_paragraph(insert_after)
+            #para1.style = "List Number 2"
+
+            run_para1 = para1.add_run(f"{counting}. {i['title']} - ")
+            run_para1.bold = True
+            run_para1.font.name = "Corbel"
+            run_para1.font.size = Pt(12)
+            run_para2 = para1.add_run(i["description"])
+            run_para2.font.name = "Corbel"
+            run_para2.font.size = Pt(12)
+            insert_after = para1
+            counting += 1
+            if i["affected_nodes_table"] and os.path.exists(i["affected_nodes_table"]):
+                para2 = add_new_paragraph(insert_after)
+                resize_image(para2, i["affected_nodes_table"], doc, chosen_depth=3.0)
+                insert_after = para2
+            para3 = add_new_paragraph(insert_after)
+            run_para3 = para3.add_run("Evidence:")
+            run_para3.bold = True
+            run_para3.font.name = "Corbel"
+            run_para3.font.size = Pt(12)
+            insert_after = para3
+            if i["evidence_table"] and os.path.exists(i["evidence_table"]):
+                para4 = add_new_paragraph(insert_after)
+                resize_image(para4, i["evidence_table"], doc, chosen_depth=3.0)
+                insert_after = para4
+            para5 = add_new_paragraph(insert_after)
+            para5.add_run("")
+            insert_after = para5
+    doc.save(findings_report)
+    print(f"✅ Findings Details was successfully populated and saved")
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
@@ -473,7 +745,7 @@ def main() -> None:
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
-    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
+    modified_findings_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
