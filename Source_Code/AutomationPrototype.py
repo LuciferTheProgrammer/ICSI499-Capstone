@@ -11,8 +11,6 @@ from typing import Union, Literal
 from dataclasses import dataclass
 import os
 import json
-
-from networkx.algorithms.threshold import right_d_threshold_sequence
 from openai import OpenAI
 import pymupdf
 from docx.text.paragraph import Paragraph
@@ -411,7 +409,7 @@ def load_findings_lookup(details_excel: str, sheet_name: str = "External") -> di
 
     return lookup
 
-def finding_details(technical_report: str, findings_report: str, details_excel: str, sheet_name: str = "External") -> None:
+def finding_details_old(technical_report: str, findings_report: str, details_excel: str, sheet_name: str = "External") -> None:
     vulnerabilities = severity_counter(technical_report)
     lookup = load_findings_lookup(details_excel, sheet_name=sheet_name)
 
@@ -466,34 +464,117 @@ def finding_details(technical_report: str, findings_report: str, details_excel: 
     doc.save(findings_report)
     print("✅ Findings Details saved.")
 
-def resize_image(p, file_image: str, container: Document, chosen_depth: float = 7.5) -> None:
-    beginning = container.sections[0]
-    contain_width = beginning.page_width.inches - beginning.left_margin.inches - beginning.right_margin.inches - 0.2
+def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
     with Image.open(file_image) as image:
         pixel_w, pixel_h = image.size
-        ratio = pixel_w/pixel_h
-        width = contain_width
-        height = width/ratio
-        if chosen_depth < height:
-            height = chosen_depth
-            width = height * ratio
-        p.add_run().add_picture(file_image, width=Inches(width), height=Inches(height))
+        if pixel_w == 0 or pixel_h == 0:
+            return
+        prop = pixel_w / pixel_h
+        modified_w = max_w
+        if prop > desired_ra:
+            modified_w = 4.6
+        final_w = modified_w
+        final_h = final_w / prop
+        if max_h < final_h:
+            final_h = max_h
+            final_w = final_h * prop
+        p.add_run().add_picture(file_image, width=Inches(final_w), height=Inches(final_h))
 
-def construct_portion(p, top, bottom):
+def modify_bounds(container, top, bottom, left, right, x_padding = 4, y_padding = 4):
+    max_left = max(left, container.x0 - x_padding)
+    max_top = max(top, container.y0 - y_padding)
+    min_right = min(right, container.x1 + x_padding)
+    min_bottom = min(bottom, container.y1 + y_padding)
+    result = pymupdf.Rect(max_left, max_top, min_right, min_bottom)
+    return result
+
+def center(container, top, bottom, left, right, extra_w = 18):
+    center_data = (container.x0 + container.x1) / 2
+    target_w = min(right - left, container.width + extra_w)
+    alter_x0 = center_data - (target_w / 2)
+    alter_x1 = center_data + (target_w / 2)
+    if left > alter_x0:
+        move = left - alter_x0
+        alter_x0 += move
+        alter_x1 += move
+    if right < alter_x1:
+        move = alter_x1 - right
+        alter_x0 -= move
+        alter_x1 -= move
+    alter_x0 = max(left, alter_x0)
+    alter_x1 = min(right, alter_x1)
+    mod_top = max(top, container.y0 - 3)
+    mod_bottom = min(bottom, container.y1 + 3)
+    res = pymupdf.Rect(alter_x0, mod_top, alter_x1, mod_bottom)
+    return res
+
+def construct_portion(p, top, bottom, table_type="text"):
     left_side = 36
     right_side = p.rect.width - 36
     table_collector = []
+    alternative_table = []
+    if table_type == "table":
+        try:
+            detected_table = p.find_tables()
+            if detected_table and detected_table.tables:
+                for table in detected_table.tables:
+                    x0, y0, x1, y1 = table.bbox
+                    holder = pymupdf.Rect(x0, y0, x1, y1)
+                    if holder.y0 >= (top - 10) and holder.y1 <= (bottom + 12):
+                        if holder.width >= 40 and holder.height >= 8:
+                            alternative_table.append(holder)
+            if alternative_table:
+                optimal = min(alternative_table, key=lambda x: abs(x.y0 - top))
+                optimal = modify_bounds(optimal, top, bottom, left_side, right_side, x_padding=4, y_padding=4)
+                optimal = center(optimal, top, bottom, left_side, right_side, extra_w=18)
+                return optimal
+        except Exception as e:
+            pass
+    d_boxes = []
     try:
-        detected_table = p.find_tables()
-        if detected_table and detected_table.tables:
-            for table in detected_table.tables:
-                x0, y0, x1, y1 = table.bbox
-                holder = pymupdf.Rect(x0, y0, x1, y1)
-                if holder.y0 <= bottom and holder.y1 >= top:
-                    if holder.width >= 40 and holder.height >= 12:
-                        table_collector.append(holder)
+      draws = p.get_drawings()
+      for d in draws:
+          temp = d.get("rect")
+          if not temp:
+              continue
+          if temp.y0 >= (top - 10) and temp.y1 <= (bottom + 12):
+              if temp.width >= 40 and temp.height >= 8:
+                  d_boxes.append(temp)
     except Exception as e:
-        pass
+        d_boxes = []
+    if d_boxes:
+        optimal = min(d_boxes, key=lambda x: abs(x.y0 - top))
+        combine = pymupdf.Rect(optimal.x0, optimal.y0, optimal.x1, optimal.y1)
+        marked = True
+        while marked:
+            marked = False
+            for entry in d_boxes:
+                h_matching = False
+                vertical_mark = False
+                overlap = False
+                if abs(entry.x0 - combine.x0) < 30 and abs(entry.x1 - combine.x1) < 30:
+                    h_matching = True
+                if -8 <= (entry.y0 - combine.y1) <= 20:
+                    vertical_mark = True
+                if not ((entry.y1 < combine.y0 - 3) or (entry.y0 > combine.y1 + 3)):
+                    overlap = True
+                if h_matching and (vertical_mark or overlap):
+                    new_x0 = min(combine.x0, entry.x0)
+                    new_y0 = min(combine.y0, entry.y0)
+                    new_x1 = max(combine.x1, entry.x1)
+                    new_y1 = max(combine.y1, entry.y1)
+                    res = pymupdf.Rect(new_x0, new_y0, new_x1, new_y1)
+                    if res != combine:
+                        combine = res
+                        marked = True
+        if table_type == "text":
+            modified_bot = min(bottom, combine.y1 + 8)
+            combine = pymupdf.Rect(combine.x0, combine.y0, combine.x1, modified_bot)
+            contain = modify_bounds(combine, top, bottom, left_side, right_side, x_padding=4, y_padding=4)
+            return contain
+        combine = modify_bounds(combine, top, bottom, left_side, right_side, x_padding=4, y_padding=4)
+        combine = center(combine, top, bottom, left_side, right_side, extra_w=18)
+        return combine
     text = p.get_text("words")
     for i in text:
         x0, y0, x1, y1, container = i[:5]
@@ -504,28 +585,112 @@ def construct_portion(p, top, bottom):
             res = pymupdf.Rect(x0, y0, x1, y1)
             table_collector.append(res)
     if table_collector:
-        x0_vals = []
-        y0_vals = []
-        x1_vals = []
-        y1_vals = []
-        for row0 in table_collector:
-            x0_vals.append(row0.x0)
-        x0 = max(left_side, (min(x0_vals) - 6))
-        for row1 in table_collector:
-            y0_vals.append(row1.y0)
-        y0 = max(top, (min(y0_vals) - 4))
-        for row2 in table_collector:
-            x1_vals.append(row2.x1)
-        x1 = min(right_side, (max(x1_vals) + 6))
-        for row3 in table_collector:
-            y1_vals.append(row3.y1)
-        y1 = min(bottom, (max(y1_vals) + 4))
-        final = pymupdf.Rect(x0, y0, x1, y1)
-        return final
+        x0_min = table_collector[0].x0
+        y0_min = table_collector[0].y0
+        x1_max = table_collector[0].x1
+        y1_max = table_collector[0].y1
+        for row in table_collector:
+            if row.x0 < x0_min:
+                x0_min = row.x0
+            if row.y0 < y0_min:
+                y0_min = row.y0
+            if row.x1 > x1_max:
+                x1_max = row.x1
+            if row.y1 > y1_max:
+                y1_max = row.y1
+        combine = pymupdf.Rect(x0_min, y0_min, x1_max, y1_max)
+        if table_type == "text":
+            mod_bottom = min(bottom, combine.y1 + 10)
+            combine = pymupdf.Rect(combine.x0, combine.y0, combine.x1, mod_bottom)
+            output = modify_bounds(combine, top, bottom, left_side, right_side, x_padding=4, y_padding=4)
+            return output
+        combine = modify_bounds(combine, top, bottom, left_side, right_side, x_padding=4, y_padding=4)
+        combine = center(combine, top, bottom, left_side, right_side, extra_w=18)
+        return combine
     default = pymupdf.Rect(left_side, top, right_side, bottom)
     return default
 
-def modified_findings_details(technical_path: str, findings_report: str, details_path: str, sheetname: str = "External") -> None:
+def enlarge_pic(box, container, x_padding=10, y_padding_top=6, y_padding_bottom=10):
+    max_x0 = max(container.x0, box.x0 - x_padding)
+    max_y0 = max(container.y0, box.y0 - y_padding_top)
+    min_x1 = min(container.x1, box.x1 + x_padding)
+    min_y1 = min(container.y1, box.y1 + y_padding_bottom)
+    res = pymupdf.Rect(max_x0, max_y0, min_x1, min_y1)
+    return res
+
+def ai_resolve_image(page, section, label="evidence"):
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=30.0)
+    pixels = page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=section ,alpha=False)
+    data = pixels.tobytes("png")
+    image = base64.b64encode(data).decode("utf-8")
+    if label == "affected nodes":
+        task = f"""You're looking at a screenshot of the
+                Affected Nodes section from a penetration test report PDF.
+                Return JSON only in this given exact format:
+                {{"x0": 0.0, 
+                "y0": 0.0, 
+                "x1": 1.0, 
+                "y1": 1.0}}
+                Rules:
+                - The coordinates must be ratios relative to the image.
+                - You must select the full visible affected table block.
+                - You must include the colored/orange title banner such as "ONE (1) AFFECTED URL" or "ONE (1) NODE AFFECTED".
+                - You must include the table header row such as "Affected URL" or "IP Address / Host Name / Operating System". 
+                - You must include the data row(s).
+                - You must exclude content below the table, such as Recommendation, Reproduction Steps, References, or Evidence.
+                - You must return no extra text.            
+                """
+    else:
+        task = f"""You're looking at a given screenshot of the Evidence section from a penetration test report PDF.
+                Return JSON only in this given exact format: 
+                {{"x0": 0.0,
+                "y0": 0.0,
+                "x1": 1.0,
+                "y1": 1.0
+                }}
+                Rules:
+                - The coordinates must be ratios relative to the given image.
+                - You must select only the actual visible evidence content block.
+                - You must exclude the heading label like "Evidence" when possible.
+                - You must exclude the following sections like References, Recommendation, Appendix, or severity headers.
+                - You must include the full evidence line or wrapped continuation lines.
+                - Do not crop any characters on the left, right, or bottom.
+                - You must return no extra text. 
+                """
+    action = [{
+        "role": "user",
+        "content": [
+            {"type": "input_text", "text": task},
+            {"type": "input_image", "image_url": f"data:image/png;base64,{image}"}
+        ]
+    }]
+    print(f"Started using AI mechanism for {label}")
+    response = client.responses.create(model="gpt-5-mini", input=action)
+    print(f"Completed using AI mechanism for {label}")
+    try:
+        container = json.loads(response.output_text.strip())
+        row_x0 = float(container["x0"])
+        row_y0 = float(container["y0"])
+        row_x1 = float(container["x1"])
+        row_y1 = float(container["y1"])
+        coor_1 = section.x0 + (section.width * row_x0)
+        coor_2 = section.y0 + (section.height * row_y0)
+        coor_3 = section.x0 + (section.width * row_x1)
+        coor_4 = section.y0 + (section.height * row_y1)
+        res = pymupdf.Rect(coor_1, coor_2, coor_3, coor_4 + 2)
+        if label == "affected nodes":
+            modified = enlarge_pic(res, section, x_padding=12, y_padding_top=10, y_padding_bottom=16)
+            min_x0 = min(section.x1, modified.x0 + 2)
+            modified = pymupdf.Rect(min_x0, modified.y0, modified.x1, modified.y1)
+            return modified
+        else:
+            modified = enlarge_pic(res, section, x_padding=10, y_padding_top=4, y_padding_bottom=8)
+            return modified
+    except Exception:
+        return section
+
+def finding_details(technical_path: str, findings_report: str, details_path: str, sheetname: str = "External") -> None:
+    print("Started finding_details")
     dataframe = pd.read_excel(details_path, sheet_name=sheetname)
     columns = []
     for i in dataframe.columns:
@@ -601,73 +766,70 @@ def modified_findings_details(technical_path: str, findings_report: str, details
                 if not affected:
                     affected = page.search_for("AFFECTED NODES")
                 if affected:
-                    top = affected[0].y1 + 5
+                    top = affected[0].y1 + 3
                     bottom = page.rect.height - 36
-                    holder_val = ["Recommendation", "Reproduction Steps", "References", "Evidence"] + severities
+                    holder_val = ["Recommendation", "RECOMMENDATION",
+                                  "Reproduction Steps", "REPRODUCTION STEPS", "References", "REFERENCES",
+                                  "Evidence", "EVIDENCE"] + severities
                     connections = []
                     for entry in holder_val:
                         collect = page.search_for(entry)
                         for k in collect:
                             if k.y0 > top:
-                                result = k.y0 - 5
+                                result = k.y0 - 4
                                 connections.append(result)
                     if connections:
                         bottom = min(connections)
                     if top < bottom:
-                        """
-                        holder = page.get_drawings()
-                        left = 36
-                        right = page.rect.width - 36
-                        gather = []
-                        for h in holder:
-                            take = h.get("rect")
-                            if take and take.y1 <= bottom + 10 and take.y0 >= top - 10:
-                                gather.append(take)
-                        if gather:
-                            right = max(c.x1 for c in gather) + 5
-                            left = min(c.x0 for c in gather) - 5
-                        """
-
-                        crop = construct_portion(page, top, bottom)
-                        file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
-                        page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
-                        find["affected_nodes_table"] = file_path_affected
+                        crop = construct_portion(page, top, bottom, table_type="table")
+                        section_cont = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
+                        crop_section = crop.get_area()
+                        section = section_cont.get_area()
+                        if (crop_section > section * 0.88) or (crop.width > section_cont.width * 0.92):
+                            print(f"Using AI fallback for affected nodes, finding {i}, page {x+1}")
+                            input_ai = enlarge_pic(crop, section_cont, x_padding=18, y_padding_top=14, y_padding_bottom=14)
+                            cropped = ai_resolve_image(page, input_ai, label="affected nodes")
+                            file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
+                            page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=cropped, alpha=False).save(file_path_affected)
+                            find["affected_nodes_table"] = file_path_affected
+                        else:
+                            file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
+                            page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
+                            find["affected_nodes_table"] = file_path_affected
             if find["evidence_table"] is None:
                 evidence = page.search_for("Evidence")
                 if not evidence:
                     evidence = page.search_for("EVIDENCE")
                 if evidence:
-                    top = evidence[0].y1 + 5
-                    bottom = page.rect.height - 36
+                    evidence_box = max(evidence, key=lambda s: s.y0)
+                    top = evidence_box.y1 + 3
                     connections = []
-                    FLAG = severities + ["Appendix" ,"APPENDIX"]
+                    FLAG = severities + ["References", "REFERENCES", "Recommendation", "RECOMMENDATION",
+                                         "Reproduction Steps", "REPRODUCTION STEPS", "Appendix" ,"APPENDIX"]
                     for marker in FLAG:
                         container = page.search_for(marker)
                         for k in container:
                             if k.y0 > top:
-                                result = k.y0 - 5
+                                result = k.y0
                                 connections.append(result)
                     if connections:
                         bottom = min(connections)
                     if top < bottom:
-                        """
-                        holder = page.get_drawings()
-                        left = 36
-                        right = page.rect.width - 36
-                        gather = []
-                        for h in holder:
-                            take = h.get("rect")
-                            if take and take.y1 <= bottom + 10 and take.y0 >= top - 10:
-                                gather.append(take)
-                        if gather:
-                            right = max(c.x1 for c in gather) + 5
-                            left = min(c.x0 for c in gather) - 5
-                        """
-                        #crop = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
-                        crop = construct_portion(page, top, bottom)
-                        file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
-                        page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
-                        find["evidence_table"] = file_path_evidence
+                        crop = construct_portion(page, top, bottom, table_type="text")
+                        section_cont = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
+                        crop_section = crop.get_area()
+                        section = section_cont.get_area()
+                        if (crop_section > section * 0.88) or (crop.width > section_cont.width * 0.92):
+                            print(f"Using AI fallback for evidence, finding {i}, page {x+1}")
+                            input_ai = enlarge_pic(crop, section_cont, x_padding=10, y_padding_top=6, y_padding_bottom=8)
+                            cropped = ai_resolve_image(page, input_ai, label="evidence")
+                            file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
+                            page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=cropped, alpha=False).save(file_path_evidence)
+                            find["evidence_table"] = file_path_evidence
+                        else:
+                            file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
+                            page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
+                            find["evidence_table"] = file_path_evidence
     pdf.close()
     doc = Document(findings_report)
     STATUS = {"Critical": [], "High": [], "Medium": [], "Low": []}
@@ -717,7 +879,7 @@ def modified_findings_details(technical_path: str, findings_report: str, details
             counting += 1
             if i["affected_nodes_table"] and os.path.exists(i["affected_nodes_table"]):
                 para2 = add_new_paragraph(insert_after)
-                resize_image(para2, i["affected_nodes_table"], doc, chosen_depth=3.0)
+                resize_image(para2, i["affected_nodes_table"], max_w=6.3, max_h=2.2, desired_ra=3.8)
                 insert_after = para2
             para3 = add_new_paragraph(insert_after)
             run_para3 = para3.add_run("Evidence:")
@@ -727,7 +889,7 @@ def modified_findings_details(technical_path: str, findings_report: str, details
             insert_after = para3
             if i["evidence_table"] and os.path.exists(i["evidence_table"]):
                 para4 = add_new_paragraph(insert_after)
-                resize_image(para4, i["evidence_table"], doc, chosen_depth=3.0)
+                resize_image(para4, i["evidence_table"], max_w=6.3, max_h=3.8, desired_ra=3.8)
                 insert_after = para4
             para5 = add_new_paragraph(insert_after)
             para5.add_run("")
@@ -745,7 +907,7 @@ def main() -> None:
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
-    modified_findings_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
+    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
