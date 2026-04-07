@@ -472,7 +472,7 @@ def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, des
         prop = pixel_w / pixel_h
         modified_w = max_w
         if prop > desired_ra:
-            modified_w = 4.6
+            modified_w = 5.8
         final_w = modified_w
         final_h = final_w / prop
         if max_h < final_h:
@@ -526,7 +526,7 @@ def construct_portion(p, top, bottom, table_type="text"):
             if alternative_table:
                 optimal = min(alternative_table, key=lambda x: abs(x.y0 - top))
                 optimal = modify_bounds(optimal, top, bottom, left_side, right_side, x_padding=4, y_padding=4)
-                optimal = center(optimal, top, bottom, left_side, right_side, extra_w=18)
+                optimal = center(optimal, top, bottom, left_side, right_side, extra_w=10)
                 return optimal
         except Exception as e:
             pass
@@ -610,10 +610,10 @@ def construct_portion(p, top, bottom, table_type="text"):
     default = pymupdf.Rect(left_side, top, right_side, bottom)
     return default
 
-def enlarge_pic(box, container, x_padding=10, y_padding_top=6, y_padding_bottom=10):
-    max_x0 = max(container.x0, box.x0 - x_padding)
+def enlarge_pic(box, container, left_padding=4, right_padding=10, y_padding_top=6, y_padding_bottom=10):
+    max_x0 = max(container.x0, box.x0 - left_padding)
     max_y0 = max(container.y0, box.y0 - y_padding_top)
-    min_x1 = min(container.x1, box.x1 + x_padding)
+    min_x1 = min(container.x1, box.x1 + right_padding)
     min_y1 = min(container.y1, box.y1 + y_padding_bottom)
     res = pymupdf.Rect(max_x0, max_y0, min_x1, min_y1)
     return res
@@ -679,13 +679,13 @@ def ai_resolve_image(page, section, label="evidence"):
         coor_4 = section.y0 + (section.height * row_y1)
         res = pymupdf.Rect(coor_1, coor_2, coor_3, coor_4 + 2)
         if label == "affected nodes":
-            modified = enlarge_pic(res, section, x_padding=12, y_padding_top=10, y_padding_bottom=16)
-            min_x0 = min(section.x1, modified.x0 + 2)
-            modified = pymupdf.Rect(min_x0, modified.y0, modified.x1, modified.y1)
-            return modified
+            #crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
+            #min_x0 = min(section.x1, modified.x0 + 2)
+            #modified = pymupdf.Rect(min_x0, modified.y0, modified.x1, modified.y1)
+            return section
         else:
-            modified = enlarge_pic(res, section, x_padding=10, y_padding_top=4, y_padding_bottom=8)
-            return modified
+            #crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
+            return section
     except Exception:
         return section
 
@@ -783,12 +783,15 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                     if top < bottom:
                         crop = construct_portion(page, top, bottom, table_type="table")
                         section_cont = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
+                        crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
                         crop_section = crop.get_area()
                         section = section_cont.get_area()
-                        if (crop_section > section * 0.88) or (crop.width > section_cont.width * 0.92):
+                        """
+                        if (crop_section > section * 0.93) or (crop.width > section_cont.width * 0.95):
                             print(f"Using AI fallback for affected nodes, finding {i}, page {x+1}")
                             input_ai = enlarge_pic(crop, section_cont, x_padding=18, y_padding_top=14, y_padding_bottom=14)
                             cropped = ai_resolve_image(page, input_ai, label="affected nodes")
+                            cropped = enlarge_pic(cropped, section_cont, x_padding=8, y_padding_top=4, y_padding_bottom=10)
                             file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
                             page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=cropped, alpha=False).save(file_path_affected)
                             find["affected_nodes_table"] = file_path_affected
@@ -796,6 +799,10 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                             file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
                             page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
                             find["affected_nodes_table"] = file_path_affected
+                            """
+                        file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
+                        page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
+                        find["affected_nodes_table"] = file_path_affected
             if find["evidence_table"] is None:
                 evidence = page.search_for("Evidence")
                 if not evidence:
@@ -817,12 +824,15 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                     if top < bottom:
                         crop = construct_portion(page, top, bottom, table_type="text")
                         section_cont = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
+                        crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=6, y_padding_top=4, y_padding_bottom=6)
                         crop_section = crop.get_area()
                         section = section_cont.get_area()
-                        if (crop_section > section * 0.88) or (crop.width > section_cont.width * 0.92):
+                        """
+                        if (crop_section > section * 0.93) or (crop.width > section_cont.width * 0.95):
                             print(f"Using AI fallback for evidence, finding {i}, page {x+1}")
-                            input_ai = enlarge_pic(crop, section_cont, x_padding=10, y_padding_top=6, y_padding_bottom=8)
+                            input_ai = enlarge_pic(crop, section_cont, x_padding=12, y_padding_top=8, y_padding_bottom=10)
                             cropped = ai_resolve_image(page, input_ai, label="evidence")
+                            cropped = enlarge_pic(cropped, section_cont, x_padding=6, y_padding_top=3, y_padding_bottom=6)
                             file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
                             page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=cropped, alpha=False).save(file_path_evidence)
                             find["evidence_table"] = file_path_evidence
@@ -830,6 +840,10 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                             file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
                             page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
                             find["evidence_table"] = file_path_evidence
+                            """
+                        file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
+                        page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
+                        find["evidence_table"] = file_path_evidence
     pdf.close()
     doc = Document(findings_report)
     STATUS = {"Critical": [], "High": [], "Medium": [], "Low": []}
@@ -879,7 +893,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
             counting += 1
             if i["affected_nodes_table"] and os.path.exists(i["affected_nodes_table"]):
                 para2 = add_new_paragraph(insert_after)
-                resize_image(para2, i["affected_nodes_table"], max_w=6.3, max_h=2.2, desired_ra=3.8)
+                resize_image(para2, i["affected_nodes_table"], max_w=6.3, max_h=2.8, desired_ra=3.8)
                 insert_after = para2
             para3 = add_new_paragraph(insert_after)
             run_para3 = para3.add_run("Evidence:")
