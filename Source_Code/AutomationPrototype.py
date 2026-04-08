@@ -11,6 +11,8 @@ from typing import Union, Literal
 from dataclasses import dataclass
 import os
 import json
+
+from lxml.html.diff import markup_serialize_tokens
 from openai import OpenAI
 import pymupdf
 from docx.text.paragraph import Paragraph
@@ -724,6 +726,12 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
             insert_after = para1
             counting += 1
             if i["affected_nodes_table"] and os.path.exists(i["affected_nodes_table"]):
+                para_an = add_new_paragraph(insert_after)
+                run_para_an = para_an.add_run("Affected Nodes:")
+                run_para_an.font.italic = True
+                run_para_an.font.name = "Corbel"
+                run_para_an.font.size = Pt(12)
+                insert_after = para_an
                 para2 = add_new_paragraph(insert_after)
                 resize_image(para2, i["affected_nodes_table"], max_w=6.3, max_h=2.8, desired_ra=3.8)
                 insert_after = para2
@@ -737,9 +745,6 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                 para4 = add_new_paragraph(insert_after)
                 resize_image(para4, i["evidence_table"], max_w=6.3, max_h=3.8, desired_ra=3.8)
                 insert_after = para4
-            para5 = add_new_paragraph(insert_after)
-            para5.add_run("")
-            insert_after = para5
     doc.save(findings_report)
     print(f"✅ Findings Details was successfully populated and saved")
 
@@ -810,24 +815,20 @@ def Logistics(technical_path: str, findings_report: str) -> None:
         if logistic_index is None:
             print("Could not find correct Logistics section to populate in Findings Report")
             return
-        position = doc.paragraphs[logistic_index]
-        after = position
-        bullets = [("Start Date:", date_start), ("End Date:", date_end), ("Escalation Contact:", escalation)]
-        for val, s in bullets:
-            para1 = add_new_paragraph(after)
-            para1.style = "Logistics Bullet"
-            para1_run = para1.add_run(val + " ")
-            para1_run.font.name = "Corbel"
-            para1_run.font.size = Pt(12)
-            para2_run = para1.add_run(s)
-            para2_run.font.name = "Corbel"
-            para2_run.font.size = Pt(12)
-            para2_run.font.color.rgb = RGBColor(242, 101, 34)
-            para1.paragraph_format.space_before = Pt(0)
-            para1.paragraph_format.space_after = Pt(0)
-            after = para1
+        bullets = [(doc.paragraphs[logistic_index + 1], "Start Date: ", date_start), (doc.paragraphs[logistic_index + 2], "End Date: ", date_end), (doc.paragraphs[logistic_index + 3], "Escalation Contact: ", escalation)]
+        for y, val, s in bullets:
+            y.text = val
+            if y.runs:
+                y.runs[0].font.name = "Corbel"
+                y.runs[0].font.size = Pt(12)
+            para = y.add_run(s)
+            para.font.name = "Corbel"
+            para.font.size = Pt(12)
+            para.font.color.rgb = RGBColor(242, 101, 34)
+            y.paragraph_format.space_before = Pt(0)
+            y.paragraph_format.space_after = Pt(0)
     doc.save(findings_report)
-    print("✅ Logistics populated successfully and saved")
+    print("✅ Logistics successfully populated and saved")
 
 def main() -> None:
     # activity_report, findings_report = getReports()
@@ -839,7 +840,7 @@ def main() -> None:
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
-    #finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
+    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
     Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
