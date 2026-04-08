@@ -16,6 +16,7 @@ import pymupdf
 from docx.text.paragraph import Paragraph
 from docx.oxml import OxmlElement
 from PIL import Image
+from docx.shared import RGBColor
 
 
 # default paths we should be using for our reports, i.e. ./Reports
@@ -382,87 +383,6 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 frames.append(VulnerabilityFrame(discoveredName=frame[0], rating=frame[2]))
                 print(f"vuln detected: {frame[2]}")
     return frames
-def normalize_title(title: str) -> str:
-    return " ".join(str(title).strip().lower().split())
-
-def load_findings_lookup(details_excel: str, sheet_name: str = "External") -> dict:
-    df = pd.read_excel(details_excel, sheet_name=sheet_name)
-
-    # clean column names
-    df.columns = [str(col).strip() for col in df.columns]
-
-    lookup = {}
-
-    for _, row in df.iterrows():
-        finding_title = str(row.get("Finding Title", "")).strip()
-        if not finding_title:
-            continue
-
-        key = normalize_title(finding_title)
-
-        lookup[key] = {
-            "title": finding_title,
-            "description": str(row.get("Finding Description", "")).strip(),
-            "risk": str(row.get("Risk Level", "")).strip(),
-            "recommendation": str(row.get("Recommendation", "")).strip(),
-        }
-
-    return lookup
-
-def finding_details_old(technical_report: str, findings_report: str, details_excel: str, sheet_name: str = "External") -> None:
-    vulnerabilities = severity_counter(technical_report)
-    lookup = load_findings_lookup(details_excel, sheet_name=sheet_name)
-
-    doc = Document(findings_report)
-    section = "FINDINGS DETAILS"
-
-    insert_index = None
-    for i, paragraph in enumerate(doc.paragraphs):
-        if section.lower() in paragraph.text.lower():
-            insert_index = i
-
-    if insert_index is None:
-        print(f"The {section} section was not found.")
-        return
-
-    insert_position = doc.paragraphs[insert_index + 1]
-
-    for vuln in reversed(vulnerabilities):
-        key = normalize_title(vuln.discoveredName)
-
-        if key in lookup:
-            detail = lookup[key]
-
-            # Title
-            title_para = insert_position.insert_paragraph_before()
-            title_run = title_para.add_run(detail["title"])
-            title_run.bold = True
-            title_run.font.size = Pt(13)
-
-            # Risk Level
-            risk_para = insert_position.insert_paragraph_before()
-            risk_run = risk_para.add_run(f"Risk Level: {detail['risk']}")
-            risk_run.bold = True
-            risk_run.font.size = Pt(11)
-
-            # Description
-            desc_para = insert_position.insert_paragraph_before()
-            desc_para.add_run("Finding Description: ").bold = True
-            desc_para.add_run(detail["description"])
-
-            # Recommendation
-            rec_para = insert_position.insert_paragraph_before()
-            rec_para.add_run("Recommendation: ").bold = True
-            rec_para.add_run(detail["recommendation"])
-
-            # spacing
-            insert_position.insert_paragraph_before().add_run("")
-
-        else:
-            print(f"⚠ No match found for: {vuln.discoveredName}")
-
-    doc.save(findings_report)
-    print("✅ Findings Details saved.")
 
 def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
     with Image.open(file_image) as image:
@@ -617,12 +537,15 @@ def enlarge_pic(box, container, left_padding=2, right_padding=10, y_padding_top=
     min_y1 = min(container.y1, box.y1 + y_padding_bottom)
     res = pymupdf.Rect(max_x0, max_y0, min_x1, min_y1)
     return res
+
 def left_trim(container, unit=8):
     res = pymupdf.Rect(container.x0 + unit, container.y0, container.x1, container.y1)
     return res
+
 def bottom_trim(container, unit=8):
     res = pymupdf.Rect(container.x0, container.y0, container.x1, container.y1 - unit)
     return res
+
 def finding_details(technical_path: str, findings_report: str, details_path: str, sheetname: str = "External") -> None:
     print("Started finding_details")
     dataframe = pd.read_excel(details_path, sheet_name=sheetname)
@@ -732,7 +655,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                     top = evidence_box.y1 + 3
                     connections = []
                     FLAG = severities + ["References", "REFERENCES", "Recommendation", "RECOMMENDATION",
-                                         "Reproduction Steps", "REPRODUCTION STEPS", "Appendix" ,"APPENDIX"]
+                                         "Reproduction Steps", "REPRODUCTION STEPS", "Appendix", "APPENDIX"]
                     for marker in FLAG:
                         container = page.search_for(marker)
                         for k in container:
@@ -820,6 +743,92 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
     doc.save(findings_report)
     print(f"✅ Findings Details was successfully populated and saved")
 
+def Logistics(technical_path: str, findings_report: str) -> None:
+    MITRE_r = []
+    escalation = None
+    with pdfplumber.open(technical_path) as pdf:
+        MITRE_sec = False
+        contact_sect = False
+        for p in pdf.pages:
+            data = p.extract_text()
+            if not data:
+                continue
+            lines = data.splitlines()
+            for entry in lines:
+                split_entry = entry.split()
+                clean_entry = " ".join(split_entry).strip()
+                if clean_entry == "":
+                    continue
+                contact_flag = "Primary Point of Contact"
+                if contact_flag in clean_entry:
+                    contact_sect = True
+                    continue
+                if contact_sect and clean_entry.startswith("Name:"):
+                    escalation = clean_entry.replace("Name:", "", 1).strip()
+                    contact_sect = False
+                MITRE_flag = "MITRE ATT&CK Mappings"
+                if MITRE_flag in clean_entry:
+                    MITRE_sec = True
+                    continue
+                if MITRE_sec and "Reputational Threat Findings" in clean_entry:
+                    MITRE_sec = False
+                if MITRE_sec:
+                    if clean_entry.startswith("Time Name Tactic TTPID"):
+                        continue
+                    if re.search(r'(Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+'
+                                r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+'
+                                r'\d{1,2},\s+\d{4}\s+@', clean_entry):
+                        MITRE_r.append(clean_entry)
+        if not MITRE_r:
+            print("Could not find the correct rows on MITRE ATT&CK Mappings from Technical Report")
+            return
+        if not escalation:
+            print("Could not find the correct contact for point of escalation from Technical Report")
+            return
+        first = MITRE_r[0]
+        last = MITRE_r[-1]
+        match_first = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', first)
+        match_last = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', last)
+        if not match_first or not match_last:
+            print("Could not extract start and end dates from Technical Report")
+            return
+        start_abv = match_first.group(0)
+        end_abv = match_last.group(0)
+        mapping = {"Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April", "May": "May", "Jun": "June", "Jul": "July",
+                   "Aug": "August", "Sep": "September", "Oct": "October", "Nov": "November", "Dec": "December"}
+        starting = start_abv.replace(",", "").split()
+        ending = end_abv.replace(",", "").split()
+        date_start = f"{mapping[starting[0]]} {starting[1]}, {starting[2]}"
+        date_end = f"{mapping[ending[0]]} {ending[1]}, {ending[2]}"
+        doc = Document(findings_report)
+        logistic_index = None
+        struc = "The Penetration Testing was conducted according to the following:"
+        for i, paragraph in enumerate(doc.paragraphs):
+            if struc in paragraph.text:
+                logistic_index = i
+                break
+        if logistic_index is None:
+            print("Could not find correct Logistics section to populate in Findings Report")
+            return
+        position = doc.paragraphs[logistic_index]
+        after = position
+        bullets = [("Start Date:", date_start), ("End Date:", date_end), ("Escalation Contact:", escalation)]
+        for val, s in bullets:
+            para1 = add_new_paragraph(after)
+            para1.style = "Logistics Bullet"
+            para1_run = para1.add_run(val + " ")
+            para1_run.font.name = "Corbel"
+            para1_run.font.size = Pt(12)
+            para2_run = para1.add_run(s)
+            para2_run.font.name = "Corbel"
+            para2_run.font.size = Pt(12)
+            para2_run.font.color.rgb = RGBColor(242, 101, 34)
+            para1.paragraph_format.space_before = Pt(0)
+            para1.paragraph_format.space_after = Pt(0)
+            after = para1
+    doc.save(findings_report)
+    print("✅ Logistics populated successfully and saved")
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
@@ -830,7 +839,8 @@ def main() -> None:
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
-    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
+    #finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
+    Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
