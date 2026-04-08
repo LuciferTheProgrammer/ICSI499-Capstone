@@ -11,8 +11,6 @@ from typing import Union, Literal
 from dataclasses import dataclass
 import os
 import json
-
-from lxml.html.diff import markup_serialize_tokens
 from openai import OpenAI
 import pymupdf
 from docx.text.paragraph import Paragraph
@@ -828,7 +826,7 @@ def Logistics(technical_path: str, findings_report: str) -> None:
             y.paragraph_format.space_before = Pt(0)
             y.paragraph_format.space_after = Pt(0)
     doc.save(findings_report)
-    print("✅ Logistics successfully populated and saved")
+    print("✅ Logistics was successfully populated and saved")
 
 def main() -> None:
     # activity_report, findings_report = getReports()
