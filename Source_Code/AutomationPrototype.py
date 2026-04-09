@@ -828,6 +828,22 @@ def Logistics(technical_path: str, findings_report: str) -> None:
     doc.save(findings_report)
     print("✅ Logistics was successfully populated and saved")
 
+def customer_name()-> str:
+    name = input("Customer Name: ")
+    return name
+
+def set_customer_name(name: str, findings_report_path: str) -> None:
+    name = customer_name()
+    doc = Document(findings_report_path)
+    position = None
+    cus_sec = "[CUSTOMER NAME]"
+    for i, paragraph in enumerate(doc.paragraphs):
+        cur_data = paragraph.text.upper()
+        if cus_sec in cur_data:
+            position = i
+            break
+
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
