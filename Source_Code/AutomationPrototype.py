@@ -829,20 +829,90 @@ def Logistics(technical_path: str, findings_report: str) -> None:
     print("✅ Logistics was successfully populated and saved")
 
 def customer_name()-> str:
-    name = input("Customer Name: ")
+    name = input("Customer Name: ").strip()
     return name
 
-def set_customer_name(name: str, findings_report_path: str) -> None:
+def set_customer_name(findings_report_path: str) -> None:
     name = customer_name()
+    if name == "":
+        print("No name was provided. Please try again.")
+        return
+    marker = False
     doc = Document(findings_report_path)
-    position = None
     cus_sec = "[CUSTOMER NAME]"
-    for i, paragraph in enumerate(doc.paragraphs):
-        cur_data = paragraph.text.upper()
-        if cus_sec in cur_data:
-            position = i
+    for p in doc.paragraphs:
+        if cus_sec in p.text:
+            modified = p.text.replace(cus_sec, name, 1)
+            p.clear()
+            k = p.add_run(modified)
+            k.font.name = "Corbel"
+            k.font.size = Pt(16)
+            k.font.color.rgb = RGBColor(230, 120, 31)
+            marker = True
             break
+    doc.save(findings_report_path)
+    if marker:
+        print("✅ Customer Name was successfully updated")
+    else:
+        print("❌ No Customer Name was updated")
 
+def IPAddress(technical: str, findings_report_path: str) -> None:
+    IP_Address_sec = False
+    table_head = "IP ADDRESSES & RANGES"
+    Area = False
+    collector = []
+    engage_sec = "Engagement Scope of Work"
+    with pdfplumber.open(technical) as pdf:
+        for page in pdf.pages:
+            content = page.extract_text()
+            if not content:
+                continue
+            entries = content.splitlines()
+            for entry in entries:
+                split_up = entry.split()
+                cleaned = " ".join(split_up).strip()
+                if cleaned == "":
+                    continue
+                if engage_sec in cleaned:
+                    Area = True
+                    continue
+                if not Area:
+                    continue
+                if table_head in cleaned:
+                    IP_Address_sec = True
+                    continue
+                if IP_Address_sec and ("Agent Information" in cleaned or "Task Performed" in cleaned or "Rules of Engagement" in cleaned):
+                    IP_Address_sec = False
+                    break
+                if IP_Address_sec:
+                    discovered_ip = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", cleaned)
+                    for IP in discovered_ip:
+                        if IP not in collector:
+                            collector.append(IP)
+        if not collector:
+            print("Could not find IP Addresses in Technical Report")
+            return
+        print("✅ IP Address was successfully parsed from Technical Report")
+        doc = Document(findings_report_path)
+        position = None
+        target = "The following IP Addresses and hosts were evaluated during automated testing:"
+        for i, p in enumerate(doc.paragraphs):
+            if target.lower() in p.text.lower():
+                position = i
+                break
+        if position is None:
+            print("Could not find IP Address section in Findings Report")
+            return
+        increment = position + 1
+        index = doc.paragraphs[increment]
+        for IP in collector:
+            para = index.insert_paragraph_before()
+            para.style = "IP"
+            execute = para.add_run(IP)
+            execute.font.name = "Corbel"
+            execute.font.size = Pt(12)
+        doc.save(findings_report_path)
+        print("✅ IP Address was successfully populated and saved")
 
 def main() -> None:
     # activity_report, findings_report = getReports()
@@ -854,8 +924,10 @@ def main() -> None:
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
-    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, "External")
-    Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, sheetname="External")
+    #Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH)
+    #IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
