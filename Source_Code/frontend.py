@@ -287,6 +287,8 @@ class App(ctk.CTk):
         sys.stdout = sys.__stdout__
         for line in buf.getvalue().splitlines():
             if line.strip():
+                if "Consider using the pymupdf_layout package for a greatly improved page layout analysis." in line:
+                    continue
                 tag = "OK" if "✅" in line else ("WARN" if "❌" in line or "error" in line.lower() else "PLAIN")
                 self._log(line, tag)
 

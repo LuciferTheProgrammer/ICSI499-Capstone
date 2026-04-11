@@ -51,7 +51,7 @@ def automated_testing_activity(activity_report: str, findings_report: str, page_
             string3 = event[2]
             cleaned = string1 + " " + string2 + " " + string3
             activity_log.append(cleaned)
-    print("✅ All events copied.")
+    #print("✅ All events copied.")
     doc_holder = Document(findings_report)
     section = "AUTOMATED TESTING ACTIVITY"
     for i, paragraph in enumerate(doc_holder.paragraphs):
@@ -63,9 +63,9 @@ def automated_testing_activity(activity_report: str, findings_report: str, page_
                 execute.font.name = "Corbel"
                 execute.font.size = Pt(8.5)
             break
-    print("✅ All events pasted.")
+    #print("✅ All events pasted.")
     doc_holder.save(findings_report)
-    print("✅ Document saved.")
+    print("✅ Automated Testing Activity was successfully populated and saved")
 
 # Populates the Assessment Results Summary section in the Findings Report.
 def assessment_results(executive_report: str, findings_report: str, page: str) -> None:
@@ -547,7 +547,6 @@ def bottom_trim(container, unit=8):
     return res
 
 def finding_details(technical_path: str, findings_report: str, details_path: str, sheetname: str = "External") -> None:
-    print("Started finding_details")
     dataframe = pd.read_excel(details_path, sheet_name=sheetname)
     columns = []
     for i in dataframe.columns:
