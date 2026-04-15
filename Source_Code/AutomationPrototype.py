@@ -1,12 +1,14 @@
 # Automation Prototype source code.
 import pdfplumber
 import camelot
+import re
 from camelot.io import read_pdf
 from docx import Document
 from docx.shared import Pt
 import pandas as pd
 from typing import Union, Literal
 from dataclasses import dataclass
+from pathlib import Path
 
 # default paths we should be using for our reports, i.e. ./Reports
 DEFAULT_ACTIVITY_REPORT_PATH = "./Source_Code/Reports/OrbitalFire-ActivityReportDemo.pdf"
@@ -263,14 +265,226 @@ def finding_details(technical_report: str, findings_report: str, details_excel: 
         else:
             print(f"⚠ No match found for: {vuln.discoveredName}")
 
-    doc.save(findings_report)
+        doc.save(findings_report)
     print("✅ Findings Details saved.")
+
+def customer_name() -> str:
+    name = input("Customer Name: ").strip()
+    return name
+
+
+def set_customer_name(findings_report_path: str) -> None:
+    name = customer_name()
+    if name == "":
+        print("❌ No name was provided.")
+        return
+
+    doc = Document(findings_report_path)
+    target = "[CUSTOMER NAME]"
+    replaced = False
+
+    for p in doc.paragraphs:
+        if target in p.text:
+            updated_text = p.text.replace(target, name)
+            p.clear()
+            run = p.add_run(updated_text)
+            run.font.name = "Corbel"
+            run.font.size = Pt(16)
+            replaced = True
+
+    doc.save(findings_report_path)
+
+    if replaced:
+        print("✅ Customer Name was successfully updated")
+    else:
+        print("❌ No [CUSTOMER NAME] placeholder was found")
+
+
+def IPAddress(technical: str, findings_report_path: str) -> None:
+    collector = []
+    in_scope = False
+    in_ip_section = False
+
+    scope_header = "Engagement Scope of Work"
+    ip_header = "IP ADDRESSES & RANGES"
+
+    with pdfplumber.open(technical) as pdf:
+        for page in pdf.pages:
+            content = page.extract_text()
+            if not content:
+                continue
+
+            for line in content.splitlines():
+                cleaned = " ".join(line.split()).strip()
+
+                if cleaned == "":
+                    continue
+
+                if scope_header in cleaned:
+                    in_scope = True
+                    continue
+
+                if not in_scope:
+                    continue
+
+                if ip_header in cleaned:
+                    in_ip_section = True
+                    continue
+
+                if in_ip_section and (
+                        "Agent Information" in cleaned or
+                        "Task Performed" in cleaned or
+                        "Rules of Engagement" in cleaned
+                ):
+                    in_ip_section = False
+                    break
+
+                if in_ip_section:
+                    found_ips = re.findall(
+                        r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b",
+                        cleaned
+                    )
+                    for ip in found_ips:
+                        if ip not in collector:
+                            collector.append(ip)
+
+    if not collector:
+        print("❌ Could not find IP Addresses in Technical Report")
+        return
+
+    doc = Document(findings_report_path)
+    target = "The following IP Addresses and hosts were evaluated during automated testing:"
+    position = None
+
+    for i, p in enumerate(doc.paragraphs):
+        if target.lower() in p.text.lower():
+            position = i
+            break
+
+    if position is None:
+        print("❌ Could not find IP Address section in Findings Report")
+        return
+
+    insert_after = doc.paragraphs[position + 1]
+
+    for ip in reversed(collector):
+        para = insert_after.insert_paragraph_before()
+        para.style = "IP"
+        run = para.add_run(ip)
+        run.font.name = "Corbel"
+        run.font.size = Pt(12)
+
+    doc.save(findings_report_path)
+    print("✅ IP Address section populated and saved")
+
+
+def Logistics(technical_path: str, findings_report: str) -> None:
+    mitre_rows = []
+    escalation = None
+
+    with pdfplumber.open(technical_path) as pdf:
+        in_mitre = False
+        in_contact = False
+
+        for page in pdf.pages:
+            content = page.extract_text()
+            if not content:
+                continue
+
+            for line in content.splitlines():
+                cleaned = " ".join(line.split()).strip()
+
+                if cleaned == "":
+                    continue
+
+                if "Primary Point of Contact" in cleaned:
+                    in_contact = True
+                    continue
+
+                if in_contact and cleaned.startswith("Name:"):
+                    escalation = cleaned.replace("Name:", "").strip()
+                    in_contact = False
+
+                if "MITRE ATT&CK Mappings" in cleaned:
+                    in_mitre = True
+                    continue
+
+                if in_mitre and "Reputational Threat Findings" in cleaned:
+                    in_mitre = False
+
+                if in_mitre:
+                    if cleaned.startswith("Time Name Tactic"):
+                        continue
+
+                    if re.search(
+                            r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}',
+                            cleaned
+                    ):
+                        mitre_rows.append(cleaned)
+
+    if not mitre_rows:
+        print("❌ Could not find dates in MITRE section")
+        return
+
+    if not escalation:
+        print("❌ Could not find escalation contact")
+        return
+
+    first = mitre_rows[0]
+    last = mitre_rows[-1]
+
+    start_match = re.search(
+        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}',
+        first
+    )
+    end_match = re.search(
+        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}',
+        last
+    )
+
+    if not start_match or not end_match:
+        print("❌ Could not extract start/end dates")
+        return
+
+    start_date = start_match.group(0)
+    end_date = end_match.group(0)
+
+    doc = Document(findings_report)
+    marker = "The Penetration Testing was conducted according to the following:"
+    index = None
+
+    for i, p in enumerate(doc.paragraphs):
+        if marker in p.text:
+            index = i
+            break
+
+    if index is None:
+        print("❌ Could not find Logistics section in Findings Report")
+        return
+
+    rows = [
+        (doc.paragraphs[index + 1], "Start Date: ", start_date),
+        (doc.paragraphs[index + 2], "End Date: ", end_date),
+        (doc.paragraphs[index + 3], "Escalation Contact: ", escalation),
+    ]
+
+    for para, label, value in rows:
+        para.text = label
+        run = para.add_run(value)
+        run.font.name = "Corbel"
+        run.font.size = Pt(12)
+
+    doc.save(findings_report)
+    print("✅ Logistics section populated and saved")
 
 
 def main() -> None:
     # activity_report, findings_report = getReports()
+    set_customer_name(DEFAULT_FINDINGS_REPORT_PATH)
     automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     assessment_results(DEFAULT_EXECUTIVE_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_FINDINGS_DETAILS_PATH, "External")
     # locate_image_technical_report(DEFAULT_TECHNICAL_REPORT_PATH)
     ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
