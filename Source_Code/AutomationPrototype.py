@@ -920,6 +920,7 @@ def place_host_data(paragraph, temp: str, data: str) -> bool:
             entry.text = entry.text.replace(temp, data)
             return True
     return False
+
 def Host_Discovery(technical: str, findings_report_path: str) -> None:
     start_point = "Host Discovery"
     end_point = "Enumeration"
@@ -981,7 +982,7 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
     new_info3 = place_host_data(position, ADDRESSES_HOLDER, addresses)
     new_info4 = place_host_data(position, OPEN_PORTS_HOLDER, open_ports)
     if not all([new_info1, new_info2, new_info3, new_info4]):
-        print("Could not replace on of the place holder under Host Discovery in Findings Report")
+        print("Could not replace one of the placeholder values under Host Discovery in Findings Report")
         return
     doc.save(findings_report_path)
     print("✅ Host Discovery was successfully populated and saved")
