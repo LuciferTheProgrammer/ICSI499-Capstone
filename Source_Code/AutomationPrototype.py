@@ -2,7 +2,6 @@
 import base64
 import re
 from operator import truediv
-
 import pdfplumber
 import camelot
 from camelot.io import read_pdf
@@ -986,7 +985,6 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
         return
     doc.save(findings_report_path)
     print("✅ Host Discovery was successfully populated and saved")
-
 
 def main() -> None:
     # activity_report, findings_report = getReports()
