@@ -1,6 +1,8 @@
 # Automation Prototype source code.
 import base64
 import re
+from operator import truediv
+
 import pdfplumber
 import camelot
 from camelot.io import read_pdf
@@ -17,7 +19,7 @@ from docx.text.paragraph import Paragraph
 from docx.oxml import OxmlElement
 from PIL import Image
 from docx.shared import RGBColor
-
+from packaging.utils import NormalizedName
 
 # default paths we should be using for our reports, i.e. ./Reports
 DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
@@ -913,6 +915,79 @@ def IPAddress(technical: str, findings_report_path: str) -> None:
         doc.save(findings_report_path)
         print("✅ IP Address was successfully populated and saved")
 
+def place_host_data(paragraph, temp: str, data: str) -> bool:
+    for entry in paragraph.runs:
+        if temp in entry.text:
+            entry.text = entry.text.replace(temp, data)
+            return True
+    return False
+def Host_Discovery(technical: str, findings_report_path: str) -> None:
+    start_point = "Host Discovery"
+    end_point = "Enumeration"
+    Host_Discovery_sec = False
+    network_ranges = None
+    systems = None
+    addresses = None
+    open_ports = None
+    target_1 = "IP address/range that was provided as part of the scope"
+    target_2 = "address/range that was scanned"
+    NETWORKS_HOLDER = "[NETWORK RANGE]"
+    SYSTEMS_HOLDER = "[SYSTEMS]"
+    ADDRESSES_HOLDER = "[ADDRESSES]"
+    OPEN_PORTS_HOLDER = "[OPEN PORTS]"
+    with pdfplumber.open(technical) as pdf:
+        for page in pdf.pages:
+            data = page.extract_text()
+            if not data:
+                continue
+            entries = data.splitlines()
+            for entry in entries:
+                split_up = entry.split()
+                cleaned = " ".join(split_up).strip()
+                if cleaned == "":
+                    continue
+                if cleaned == start_point:
+                    Host_Discovery_sec = True
+                    continue
+                if Host_Discovery_sec and cleaned == end_point:
+                    Host_Discovery_sec = False
+                    break
+                if not Host_Discovery_sec:
+                    continue
+                if target_1 in cleaned:
+                    first_match = re.search(r"Of the\s+(.+?)\s+IP address/range.*?identify a total of\s+(.+?)\s+systems?", cleaned, re.IGNORECASE)
+                    if first_match:
+                        network_ranges = first_match.group(1).strip()
+                        systems = first_match.group(2).strip()
+                if target_2 in cleaned:
+                    second_match = re.search(r"Of the\s+(.+?)\s+address/range.*?(?:found|identified)\s+(.+?)\s+(?:ports opened|open ports)", cleaned, re.IGNORECASE)
+                    if second_match:
+                        addresses = second_match.group(1).strip()
+                        open_ports = second_match.group(2).strip()
+    if not all([network_ranges, systems, addresses, open_ports]):
+        print("Could not do data extraction from Host Discovery in Technical Report")
+        return
+    doc = Document(findings_report_path)
+    position = None
+    for p in doc.paragraphs:
+        para = p.text
+        if NETWORKS_HOLDER in para or SYSTEMS_HOLDER in para or ADDRESSES_HOLDER in para or OPEN_PORTS_HOLDER in para:
+            position = p
+            break
+    if position is None:
+        print("Could not find Host Discovery section in Findings Report")
+        return
+    new_info1 = place_host_data(position, NETWORKS_HOLDER, network_ranges)
+    new_info2 = place_host_data(position, SYSTEMS_HOLDER, systems)
+    new_info3 = place_host_data(position, ADDRESSES_HOLDER, addresses)
+    new_info4 = place_host_data(position, OPEN_PORTS_HOLDER, open_ports)
+    if not all([new_info1, new_info2, new_info3, new_info4]):
+        print("Could not replace on of the place holder under Host Discovery in Findings Report")
+        return
+    doc.save(findings_report_path)
+    print("✅ Host Discovery was successfully populated and saved")
+
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
@@ -923,10 +998,11 @@ def main() -> None:
     #ratings = severity_counter(DEFAULT_TECHNICAL_REPORT_PATH)
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
-    finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, sheetname="External")
+    #finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, sheetname="External")
     #Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH)
     #IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()

@@ -20,6 +20,7 @@ from AutomationPrototype import (
     finding_details,
     Logistics,
     IPAddress,
+    Host_Discovery,
     DEFAULT_RECOMMENDATIONS_PATH,
     DEFAULT_EXECUTIVE_REPORT_PATH,
     DEFAULT_ACTIVITY_REPORT_PATH,
@@ -175,6 +176,15 @@ class App(ctk.CTk):
             command=self._run_IP,
         )
         self.run_IP_btn.grid(row=1, column=1, padx=(0, 10), pady=(10,0), sticky="w")
+
+        self.run_HostD_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Host Discovery",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_HostD,
+        )
+        self.run_HostD_btn.grid(row=1, column=2, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.count_vuln_btn = ctk.CTkButton(
             actions,
@@ -479,6 +489,29 @@ class App(ctk.CTk):
             buf = self._capture_stdout()
             try:
                 IPAddress(technical, findings)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_HostD(self):
+        technical = self.technical_var.get().strip()
+        findings = self.findings_var.get().strip()
+        if not technical or not findings:
+            self._log("⚠  Please fill in both Technical Report and Findings Report paths.", "WARN")
+            return
+        self._log("── Host Discovery ──", "HEADER")
+        self._log(f"Technical: {technical}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                Host_Discovery(technical, findings)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
