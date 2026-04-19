@@ -992,8 +992,11 @@ def Informational(technical_report: str):
     pdf = pymupdf.open(technical_report)
     for i in range(len(pdf)):
         page = pdf[i]
-        ev = page.search_for("Evidence")
+        ev = page.search_for("Evidence") # evidence part
         inf = page.search_for("Informational")
+        scope = page.search_for("and/or ranges were included as part of the engagement scope")
+        agent_information = page.search_for("The agent used in this assessment contained the following information")
+        task_performed = page.search_for("The specific tasks performed may vary based on the environment and assessment scope")
         if(inf and ev):
             print("valid informational page")
             top = ev[0].y0 + 25
@@ -1003,7 +1006,8 @@ def Informational(technical_report: str):
             table_container = pymupdf.Rect(left_point, top, right_point, bottom)
             image_zoomed = pymupdf.Matrix(2.0, 2.0)
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container ,alpha=False)
-            pixels.save("./Reports/Informational.png")
+            # save an individual catch to reports
+            pixels.save(f"./Reports/Informational{i}.png")
     pdf.close()
     return ""
 
