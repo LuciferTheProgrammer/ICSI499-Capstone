@@ -996,15 +996,27 @@ def Informational(technical_report: str):
         inf = page.search_for("Informational")
         if(inf and ev):
             print("valid informational page")
+            second_table_identifier = page.search_for("Furthermore, the consultant reviewed the DNS records provided by the domains and subdomains discovered to attempt identifying if any valuable information could be obtained.")
             top = ev[0].y0 + 25
             bottom = page.rect.height - 80
+            if(second_table_identifier):
+                print("second table")
+                bottom = second_table_identifier[0].y0 - 10
             left_point = ev[0].x0
             right_point = page.rect.width - 36
             table_container = pymupdf.Rect(left_point, top, right_point, bottom)
             image_zoomed = pymupdf.Matrix(2.0, 2.0)
-            pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container ,alpha=False)
+            pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
             # save an individual catch to reports
             pixels.save(f"./Reports/Informational{i}.png")
+            if(second_table_identifier):
+                print("second table")
+                top = second_table_identifier[0].y1 + 30
+                bottom = page.rect.height - 30
+                second_table_container = pymupdf.Rect(left_point, top, right_point, bottom)
+                second_pixels = page.get_pixmap(matrix=image_zoomed, clip=second_table_container, alpha=False)
+                second_pixels.save(f"./Reports/Informational-second-{i}.png")
+
     pdf.close()
     return ""
 
