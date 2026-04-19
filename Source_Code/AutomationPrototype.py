@@ -18,7 +18,7 @@ from docx.text.paragraph import Paragraph
 from docx.oxml import OxmlElement
 from PIL import Image
 from docx.shared import RGBColor
-from packaging.utils import NormalizedName
+# from packaging.utils import NormalizedName
 
 # default paths we should be using for our reports, i.e. ./Reports
 DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
@@ -987,6 +987,26 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
     doc.save(findings_report_path)
     print("✅ Host Discovery was successfully populated and saved")
 
+def Informational(technical_report: str):
+    # where header = "Informational" and Evidence:
+    pdf = pymupdf.open(technical_report)
+    for i in range(len(pdf)):
+        page = pdf[i]
+        ev = page.search_for("Evidence")
+        inf = page.search_for("Informational")
+        if(inf and ev):
+            print("valid informational page")
+            top = ev[0].y0 + 25
+            bottom = page.rect.height - 80
+            left_point = ev[0].x0
+            right_point = page.rect.width - 36
+            table_container = pymupdf.Rect(left_point, top, right_point, bottom)
+            image_zoomed = pymupdf.Matrix(2.0, 2.0)
+            pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container ,alpha=False)
+            pixels.save("./Reports/Informational.png")
+    pdf.close()
+    return ""
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
@@ -1002,6 +1022,7 @@ def main() -> None:
     #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH)
     #IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
-    Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    # Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    Informational(DEFAULT_TECHNICAL_REPORT_PATH)
 if __name__ == "__main__":
     main()
