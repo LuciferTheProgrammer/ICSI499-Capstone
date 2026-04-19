@@ -994,9 +994,6 @@ def Informational(technical_report: str):
         page = pdf[i]
         ev = page.search_for("Evidence") # evidence part
         inf = page.search_for("Informational")
-        scope = page.search_for("and/or ranges were included as part of the engagement scope")
-        agent_information = page.search_for("The agent used in this assessment contained the following information")
-        task_performed = page.search_for("The specific tasks performed may vary based on the environment and assessment scope")
         if(inf and ev):
             print("valid informational page")
             top = ev[0].y0 + 25
