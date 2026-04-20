@@ -1,4 +1,5 @@
 # Automation Prototype source code.
+import matplotlib.pyplot as plt
 import base64
 import re
 from operator import truediv
@@ -384,6 +385,101 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 frames.append(VulnerabilityFrame(discoveredName=frame[0], rating=frame[2]))
                 print(f"vuln detected: {frame[2]}")
     return frames
+
+def discovered_threat_totals(technical_report: str) -> dict:
+    findings = severity_counter(technical_report)
+
+    totals = {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Informational": 0
+    }
+
+    for item in findings:
+        if item.rating in totals:
+            totals[item.rating] += 1
+
+    print("✅ Discovered Threat totals extracted from Technical Report")
+    print(totals)
+    return totals
+
+def generate_findings_graphs(totals: dict) -> None:
+    labels = ["Informational", "Low", "Medium", "High", "Critical"]
+    values = [
+        totals["Informational"],
+        totals["Low"],
+        totals["Medium"],
+        totals["High"],
+        totals["Critical"]
+    ]
+
+    total_findings = sum(values)
+
+    # Donut chart
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.pie(values, startangle=90, wedgeprops=dict(width=0.35))
+    ax.text(0, 0, f"Total\nFindings:\n{total_findings}", ha="center", va="center", fontsize=16, weight="bold")
+    plt.savefig("./Reports/findings_donut.png", bbox_inches="tight")
+    plt.close()
+
+    # Line graph
+    fig, ax = plt.subplots(figsize=(8, 4))
+    years = [2023, 2024, 2025]
+
+    for label, val in zip(labels, values):
+        ax.plot(years, [0, 0, val], label=label)
+
+    ax.set_title("Total Findings Over Time (Annually)")
+    ax.legend()
+    plt.savefig("./Reports/findings_line.png", bbox_inches="tight")
+    plt.close()
+
+    print("✅ Findings Summary graphs created")
+
+def insert_findings_graphs(findings_report_path: str) -> None:
+    donut_path = "./Reports/findings_donut.png"
+    line_path = "./Reports/findings_line.png"
+
+    if not os.path.exists(donut_path):
+        print(f"❌ Donut chart not found: {donut_path}")
+        return
+
+    if not os.path.exists(line_path):
+        print(f"❌ Line chart not found: {line_path}")
+        return
+
+    doc = Document(findings_report_path)
+
+    insert_after = None
+
+    for i, p in enumerate(doc.paragraphs):
+        text = p.text.strip().upper()
+        if text == "EXECUTIVE OVERVIEW":
+            insert_after = p
+            break
+
+    if insert_after is None:
+        print("❌ EXECUTIVE OVERVIEW heading not found in Findings Report")
+        return
+
+    # insert donut chart
+    donut_para = add_new_paragraph(insert_after)
+    donut_run = donut_para.add_run()
+    donut_run.add_picture(donut_path, width=Inches(4.2))
+    donut_para.paragraph_format.space_before = Pt(6)
+    donut_para.paragraph_format.space_after = Pt(8)
+
+    # insert line chart
+    line_para = add_new_paragraph(donut_para)
+    line_run = line_para.add_run()
+    line_run.add_picture(line_path, width=Inches(6.0))
+    line_para.paragraph_format.space_before = Pt(6)
+    line_para.paragraph_format.space_after = Pt(8)
+
+    doc.save(findings_report_path)
+    print("✅ Findings Summary graphs inserted into Findings Report")
 
 def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
     with Image.open(file_image) as image:
@@ -1118,9 +1214,12 @@ def main() -> None:
     #Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 
     name = customer_name()
+    totals = discovered_threat_totals(DEFAULT_TECHNICAL_REPORT_PATH)
+    generate_findings_graphs(totals)
+    insert_findings_graphs(DEFAULT_FINDINGS_REPORT_PATH)
+    set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
     Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, name)
     Narrative_Exploitation(DEFAULT_FINDINGS_REPORT_PATH, name)
-    set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
     Informational(DEFAULT_TECHNICAL_REPORT_PATH)
 if __name__ == "__main__":
     main()
