@@ -359,7 +359,7 @@ def locate_image_technical_report(technical_report: str):
     data = pdfplumber.open(technical_report)
 
 # type to classify our vulnerabilities
-type VulnerabilityRating = Union[Literal["Informational"], Literal["Low"], Literal["Medium"], Literal["High"], Literal["Critical"]]
+VulnerabilityRating = Union[Literal["Informational"], Literal["Low"], Literal["Medium"], Literal["High"], Literal["Critical"]]
 """
 Determines if a table entry is a vulnerability rating, targeted for certain tables
 """
@@ -832,29 +832,38 @@ def customer_name()-> str:
     name = input("Customer Name: ").strip()
     return name
 
-def set_customer_name(findings_report_path: str) -> None:
-    name = customer_name()
-    if name == "":
+def set_customer_name(findings_report_path: str, name: str) -> None:
+    if name.strip() == "":
         print("No name was provided. Please try again.")
         return
-    marker = False
+
     doc = Document(findings_report_path)
-    cus_sec = "[CUSTOMER NAME]"
+    replaced = False
+
+    targets = ["[CUSTOMER NAME]", "[CUSTOMER]", "OrbitalFire", "orbital fire"]
+
     for p in doc.paragraphs:
-        if cus_sec in p.text:
-            modified = p.text.replace(cus_sec, name, 1)
+        original_text = p.text
+        updated_text = original_text
+
+        for target in targets:
+            if target in updated_text:
+                updated_text = updated_text.replace(target, name)
+                replaced = True
+
+        if updated_text != original_text:
             p.clear()
-            k = p.add_run(modified)
-            k.font.name = "Corbel"
-            k.font.size = Pt(16)
-            k.font.color.rgb = RGBColor(230, 120, 31)
-            marker = True
-            break
+            run = p.add_run(updated_text)
+            run.font.name = "Corbel"
+            run.font.size = Pt(12)
+            run.font.color.rgb = RGBColor(230, 120, 31)
+
     doc.save(findings_report_path)
-    if marker:
-        print("✅ Customer Name was successfully updated")
+
+    if replaced:
+        print("✅ Customer name was successfully updated")
     else:
-        print("❌ No Customer Name was updated")
+        print("❌ No matching customer text was found")
 
 def IPAddress(technical: str, findings_report_path: str) -> None:
     IP_Address_sec = False
@@ -1020,6 +1029,55 @@ def Informational(technical_report: str):
     pdf.close()
     return ""
 
+def Narrative_Exploitation(findings_report_path: str, customer: str) -> None:
+    if customer.strip() == "":
+        print("❌ No customer name was provided for Narrative Exploitation")
+        return
+
+    doc = Document(findings_report_path)
+
+    in_section = False
+    replaced = False
+
+    start_marker = "EXPLOITATION"
+    end_markers = [
+        "POST EXPLOITATION",
+        "FINDINGS SUMMARY",
+        "EXECUTIVE OVERVIEW",
+        "INFORMATIONAL",
+        "APPENDIX"
+    ]
+
+    for p in doc.paragraphs:
+        text = p.text.strip().upper()
+
+        if text == start_marker:
+            in_section = True
+            continue
+
+        if in_section and text in end_markers:
+            break
+
+        if in_section:
+            updated_text = p.text
+            updated_text = updated_text.replace("[CUSTOMER]", customer)
+            updated_text = updated_text.replace("[CUSTOMER NAME]", customer)
+            updated_text = updated_text.replace("OrbitalFire", customer)
+            updated_text = updated_text.replace("orbital fire", customer)
+
+            if updated_text != p.text:
+                p.clear()
+                run = p.add_run(updated_text)
+                run.font.name = "Corbel"
+                run.font.size = Pt(12)
+                replaced = True
+
+    doc.save(findings_report_path)
+
+    if replaced:
+        print("✅ Narrative Exploitation was successfully populated and saved")
+    else:
+        print("❌ No matching customer text was found in Exploitation section")
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
@@ -1032,10 +1090,12 @@ def main() -> None:
     #print(ratings)
     #finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, sheetname="External")
     #Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
-    #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH)
-    #IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
-    # Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    #Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+
+    name = customer_name()
+    set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
+    Narrative_Exploitation(DEFAULT_FINDINGS_REPORT_PATH, name)
     Informational(DEFAULT_TECHNICAL_REPORT_PATH)
 if __name__ == "__main__":
     main()
