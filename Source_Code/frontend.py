@@ -21,6 +21,9 @@ from AutomationPrototype import (
     Logistics,
     IPAddress,
     Host_Discovery,
+    Narrative_Exploitation,
+    Informational,
+    Findings_Summary,
     DEFAULT_RECOMMENDATIONS_PATH,
     DEFAULT_EXECUTIVE_REPORT_PATH,
     DEFAULT_ACTIVITY_REPORT_PATH,
@@ -186,6 +189,35 @@ class App(ctk.CTk):
         )
         self.run_HostD_btn.grid(row=1, column=2, padx=(0, 10), pady=(10,0), sticky="w")
 
+
+        self.run_Exploitation_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Exploitation",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_Exploitation,
+        )
+        self.run_Exploitation_btn.grid(row=1, column=3, padx=(0, 10), pady=(10,0), sticky="w")
+
+        self.run_Informational_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Informational",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_Informational,
+        )
+        self.run_Informational_btn.grid(row=1, column=4, padx=(0, 10), pady=(10,0), sticky="w")
+
+        self.run_Findings_Summary_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Findings Summary",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_Findings_Summary,
+        )
+        self.run_Findings_Summary_btn.grid(row=2, column=0, padx=(0, 10), pady=(10,0), sticky="w")
+
+
         self.count_vuln_btn = ctk.CTkButton(
             actions,
             text="🔍  Count Vulnerabilities",
@@ -195,7 +227,7 @@ class App(ctk.CTk):
             hover_color="#15803d",
             command=self._run_severity,
         )
-        self.count_vuln_btn.grid(row=2, column=0, padx=(0, 10), pady=(10, 0), sticky="w")
+        self.count_vuln_btn.grid(row=2, column=1, padx=(0, 10), pady=(10, 0), sticky="w")
 
         self.clear_btn = ctk.CTkButton(
             actions,
@@ -207,7 +239,7 @@ class App(ctk.CTk):
             hover_color=("gray85", "gray25"),
             command=self._clear_log,
         )
-        self.clear_btn.grid(row=2, column=1, padx=(0, 10), pady=(10, 0), sticky="w")
+        self.clear_btn.grid(row=2, column=2, padx=(0, 10), pady=(10, 0), sticky="w")
 
         # ── Log output ────────────────────────────────────────────────────────
         log_card = ctk.CTkFrame(content)
@@ -310,6 +342,12 @@ class App(ctk.CTk):
         self.run_recommendations_btn.configure(state=state)
         self.run_appendix_btn.configure(state=state)
         self.run_findings_btn.configure(state=state)
+        self.run_logistics_btn.configure(state=state)
+        self.run_IP_btn.configure(state=state)
+        self.run_HostD_btn.configure(state=state)
+        self.run_Exploitation_btn.configure(state=state)
+        self.run_Informational_btn.configure(state=state)
+        self.run_Findings_Summary_btn.configure(state=state)
         self.count_vuln_btn.configure(state=state)
         self.clear_btn.configure(state=state)
         self.status_var.set("Running…" if busy else "Done.")
@@ -385,15 +423,10 @@ class App(ctk.CTk):
         self._log(f"Technical: {technical}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
-        prompt = ctk.CTkInputDialog(text = "Enter the environment for Recommendation. For example, either 'Internal' or 'External': ", title = "Recommendation")
-        environment = prompt.get_input()
-        if not environment:
-            self._log("⚠ Environment is required for Recommendation", "WARN")
-            return
         def worker():
             buf = self._capture_stdout()
             try:
-                recommendations(recommendation, technical, findings, environment)
+                recommendations(recommendation, technical, findings)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -442,7 +475,7 @@ class App(ctk.CTk):
         def worker():
             buf = self._capture_stdout()
             try:
-                finding_details(technical, findings, find_info, "External")
+                finding_details(technical, findings, find_info)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -512,6 +545,79 @@ class App(ctk.CTk):
             buf = self._capture_stdout()
             try:
                 Host_Discovery(technical, findings)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_Exploitation(self):
+        findings = self.findings_var.get().strip()
+        if not findings:
+            self._log("⚠  Please fill in Findings Report path.", "WARN")
+            return
+        self._log("── Exploitation ──", "HEADER")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+        prompt = ctk.CTkInputDialog(text = "Customer Name: ", title = "Customer Name")
+        customer = prompt.get_input()
+        if not customer:
+            self._log("⚠ Please enter a valid customer name", "WARN")
+            return
+        customer = customer.strip()
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                Narrative_Exploitation(findings, customer)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_Informational(self):
+        technical = self.technical_var.get().strip()
+        #findings = self.findings_var.get().strip()
+        if (not technical): #or not findings):
+            self._log("⚠  Please fill in Technical Report path.", "WARN")
+            return
+        self._log("── Informational ──", "HEADER")
+        self._log(f"Technical: {technical}", "INFO")
+        #self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                Informational(technical)
+                self._restore_stdout(buf)
+                #self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_Findings_Summary(self):
+        technical = self.technical_var.get().strip()
+        findings = self.findings_var.get().strip()
+        if not technical or not findings:
+            self._log("⚠  Please fill in both Technical Report and Findings Report paths.", "WARN")
+            return
+        self._log("── Findings Summary ──", "HEADER")
+        self._log(f"Technical: {technical}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
+        self._set_busy(True)
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                Findings_Summary(technical, findings)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
