@@ -1,5 +1,4 @@
 # Automation Prototype source code.
-import matplotlib.pyplot as plt
 import base64
 import re
 from operator import truediv
@@ -19,6 +18,7 @@ from docx.text.paragraph import Paragraph
 from docx.oxml import OxmlElement
 from PIL import Image
 from docx.shared import RGBColor
+import matplotlib.pyplot as plt
 # from packaging.utils import NormalizedName
 
 # default paths we should be using for our reports, i.e. ./Reports
@@ -165,9 +165,13 @@ def process_titles_rec(x ,y):
     return x
 
 # Populates the Recommendations section in the Findings Report.
-def recommendations(recommendation_csv: str, technical_report: str, findings_report: str, environment: str) -> None:
+def recommendations(recommendation_csv: str, technical_report: str, findings_report: str) -> None:
     #environment = input("Please select the environment type: 'Internal' or 'External': ")
-    data_container = pd.read_excel(recommendation_csv, sheet_name=environment)
+
+    #data_container = pd.read_excel(recommendation_csv, sheet_name=environment)
+    internal = pd.read_excel(recommendation_csv, sheet_name="Internal")
+    external = pd.read_excel(recommendation_csv, sheet_name="External")
+    data_container = pd.concat([internal, external], ignore_index=True)
     recommendation_map = {}
     for _, i in data_container.iterrows():
         findings_title = i["Finding Title"]
@@ -386,101 +390,6 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 print(f"vuln detected: {frame[2]}")
     return frames
 
-def discovered_threat_totals(technical_report: str) -> dict:
-    findings = severity_counter(technical_report)
-
-    totals = {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Informational": 0
-    }
-
-    for item in findings:
-        if item.rating in totals:
-            totals[item.rating] += 1
-
-    print("✅ Discovered Threat totals extracted from Technical Report")
-    print(totals)
-    return totals
-
-def generate_findings_graphs(totals: dict) -> None:
-    labels = ["Informational", "Low", "Medium", "High", "Critical"]
-    values = [
-        totals["Informational"],
-        totals["Low"],
-        totals["Medium"],
-        totals["High"],
-        totals["Critical"]
-    ]
-
-    total_findings = sum(values)
-
-    # Donut chart
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie(values, startangle=90, wedgeprops=dict(width=0.35))
-    ax.text(0, 0, f"Total\nFindings:\n{total_findings}", ha="center", va="center", fontsize=16, weight="bold")
-    plt.savefig("./Reports/findings_donut.png", bbox_inches="tight")
-    plt.close()
-
-    # Line graph
-    fig, ax = plt.subplots(figsize=(8, 4))
-    years = [2023, 2024, 2025]
-
-    for label, val in zip(labels, values):
-        ax.plot(years, [0, 0, val], label=label)
-
-    ax.set_title("Total Findings Over Time (Annually)")
-    ax.legend()
-    plt.savefig("./Reports/findings_line.png", bbox_inches="tight")
-    plt.close()
-
-    print("✅ Findings Summary graphs created")
-
-def insert_findings_graphs(findings_report_path: str) -> None:
-    donut_path = "./Reports/findings_donut.png"
-    line_path = "./Reports/findings_line.png"
-
-    if not os.path.exists(donut_path):
-        print(f"❌ Donut chart not found: {donut_path}")
-        return
-
-    if not os.path.exists(line_path):
-        print(f"❌ Line chart not found: {line_path}")
-        return
-
-    doc = Document(findings_report_path)
-
-    insert_after = None
-
-    for i, p in enumerate(doc.paragraphs):
-        text = p.text.strip().upper()
-        if text == "EXECUTIVE OVERVIEW":
-            insert_after = p
-            break
-
-    if insert_after is None:
-        print("❌ EXECUTIVE OVERVIEW heading not found in Findings Report")
-        return
-
-    # insert donut chart
-    donut_para = add_new_paragraph(insert_after)
-    donut_run = donut_para.add_run()
-    donut_run.add_picture(donut_path, width=Inches(4.2))
-    donut_para.paragraph_format.space_before = Pt(6)
-    donut_para.paragraph_format.space_after = Pt(8)
-
-    # insert line chart
-    line_para = add_new_paragraph(donut_para)
-    line_run = line_para.add_run()
-    line_run.add_picture(line_path, width=Inches(6.0))
-    line_para.paragraph_format.space_before = Pt(6)
-    line_para.paragraph_format.space_after = Pt(8)
-
-    doc.save(findings_report_path)
-    print("✅ Findings Summary graphs inserted into Findings Report")
-
 def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
     with Image.open(file_image) as image:
         pixel_w, pixel_h = image.size
@@ -643,8 +552,11 @@ def bottom_trim(container, unit=8):
     res = pymupdf.Rect(container.x0, container.y0, container.x1, container.y1 - unit)
     return res
 
-def finding_details(technical_path: str, findings_report: str, details_path: str, sheetname: str = "External") -> None:
-    dataframe = pd.read_excel(details_path, sheet_name=sheetname)
+def finding_details(technical_path: str, findings_report: str, details_path: str) -> None:
+    #dataframe = pd.read_excel(details_path, sheet_name=sheetname)
+    internal = pd.read_excel(details_path, sheet_name="Internal")
+    external = pd.read_excel(details_path, sheet_name="External")
+    dataframe = pd.concat([internal, external], ignore_index=True)
     columns = []
     for i in dataframe.columns:
         clean = str(i).strip()
@@ -879,17 +791,17 @@ def Logistics(technical_path: str, findings_report: str) -> None:
                                 r'\d{1,2},\s+\d{4}\s+@', clean_entry):
                         MITRE_r.append(clean_entry)
         if not MITRE_r:
-            print("Could not find the correct rows on MITRE ATT&CK Mappings from Technical Report")
+            print("❌ Could not find the correct rows on MITRE ATT&CK Mappings from Technical Report")
             return
         if not escalation:
-            print("Could not find the correct contact for point of escalation from Technical Report")
+            print("❌ Could not find the correct contact for point of escalation from Technical Report")
             return
         first = MITRE_r[0]
         last = MITRE_r[-1]
         match_first = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', first)
         match_last = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', last)
         if not match_first or not match_last:
-            print("Could not extract start and end dates from Technical Report")
+            print("❌ Could not extract start and end dates from Technical Report")
             return
         start_abv = match_first.group(0)
         end_abv = match_last.group(0)
@@ -907,7 +819,7 @@ def Logistics(technical_path: str, findings_report: str) -> None:
                 logistic_index = i
                 break
         if logistic_index is None:
-            print("Could not find correct Logistics section to populate in Findings Report")
+            print("❌ Could not find correct Logistics section to populate in Findings Report")
             return
         bullets = [(doc.paragraphs[logistic_index + 1], "Start Date: ", date_start), (doc.paragraphs[logistic_index + 2], "End Date: ", date_end), (doc.paragraphs[logistic_index + 3], "Escalation Contact: ", escalation)]
         for y, val, s in bullets:
@@ -952,7 +864,7 @@ def set_customer_name(findings_report_path: str, name: str) -> None:
             run = p.add_run(updated_text)
             run.font.name = "Corbel"
             run.font.size = Pt(12)
-            run.font.color.rgb = RGBColor(230, 120, 31)
+            #run.font.color.rgb = RGBColor(230, 120, 31)
 
     doc.save(findings_report_path)
 
@@ -995,7 +907,7 @@ def IPAddress(technical: str, findings_report_path: str) -> None:
                         if IP not in collector:
                             collector.append(IP)
         if not collector:
-            print("Could not find IP Addresses in Technical Report")
+            print("❌ Could not find IP Addresses in Technical Report")
             return
         print("✅ IP Address was successfully parsed from Technical Report")
         doc = Document(findings_report_path)
@@ -1006,7 +918,7 @@ def IPAddress(technical: str, findings_report_path: str) -> None:
                 position = i
                 break
         if position is None:
-            print("Could not find IP Address section in Findings Report")
+            print("❌ Could not find IP Address section in Findings Report")
             return
         increment = position + 1
         index = doc.paragraphs[increment]
@@ -1025,8 +937,15 @@ def place_host_data(paragraph, temp: str, data: str) -> bool:
             entry.text = entry.text.replace(temp, data)
             return True
     return False
+def is_singular_plural(value: str) -> bool:
+    processed = value.strip().lower()
+    if processed == "one" or processed == "1" or processed == "(1)":
+        return True
+    if re.search(r"\(\s*1\s*\)", processed):
+        return True
+    return False
 
-def Host_Discovery(technical: str, findings_report_path: str, customer: str) -> None:
+def Host_Discovery(technical: str, findings_report_path: str) -> None:
     start_point = "Host Discovery"
     end_point = "Enumeration"
     Host_Discovery_sec = False
@@ -1034,87 +953,95 @@ def Host_Discovery(technical: str, findings_report_path: str, customer: str) -> 
     systems = None
     addresses = None
     open_ports = None
-
     target_1 = "IP address/range that was provided as part of the scope"
     target_2 = "address/range that was scanned"
-
+    NETWORKS_HOLDER = "[NETWORK RANGE]"
+    NETWORK_RANGE_WORD = "[NETWORK RANGE WORD]"
+    NETWORK_RANGE_VERB = "[NETWORK RANGE VERB]"
+    SYSTEMS_HOLDER = "[SYSTEMS]"
+    SYSTEM_WORD = "[SYSTEM WORD]"
+    ADDRESSES_HOLDER = "[ADDRESSES]"
+    ADDRESS_WORD = "[ADDRESS WORD]"
+    ADDRESS_VERB = "[ADDRESS VERB]"
+    OPEN_PORTS_HOLDER = "[OPEN PORTS]"
+    OPEN_PORT_WORD = "[OPEN PORT WORD]"
     with pdfplumber.open(technical) as pdf:
         for page in pdf.pages:
             data = page.extract_text()
             if not data:
                 continue
-
             entries = data.splitlines()
             for entry in entries:
-                cleaned = " ".join(entry.split()).strip()
+                split_up = entry.split()
+                cleaned = " ".join(split_up).strip()
                 if cleaned == "":
                     continue
-
                 if cleaned == start_point:
                     Host_Discovery_sec = True
                     continue
-
                 if Host_Discovery_sec and cleaned == end_point:
                     Host_Discovery_sec = False
                     break
-
                 if not Host_Discovery_sec:
                     continue
-
                 if target_1 in cleaned:
-                    first_match = re.search(
-                        r"Of the\s+(.+?)\s+IP address/range.*?identify a total of\s+(.+?)\s+systems?",
-                        cleaned,
-                        re.IGNORECASE
-                    )
+                    first_match = re.search(r"Of the\s+(.+?)\s+IP address/range.*?identify a total of\s+(.+?)\s+systems?", cleaned, re.IGNORECASE)
                     if first_match:
                         network_ranges = first_match.group(1).strip()
                         systems = first_match.group(2).strip()
-
                 if target_2 in cleaned:
-                    second_match = re.search(
-                        r"Of the\s+(.+?)\s+address/range.*?(?:found|identified)\s+(.+?)\s+(?:ports opened|open ports)",
-                        cleaned,
-                        re.IGNORECASE
-                    )
+                    second_match = re.search(r"Of the\s+(.+?)\s+address/range.*?(?:found|identified)\s+(.+?)\s+(?:ports opened|open ports)", cleaned, re.IGNORECASE)
                     if second_match:
                         addresses = second_match.group(1).strip()
                         open_ports = second_match.group(2).strip()
-
     if not all([network_ranges, systems, addresses, open_ports]):
-        print("❌ Could not extract Host Discovery data from Technical Report")
+        print("❌ Could not do data extraction from Host Discovery in Technical Report")
         return
-
-    doc = Document(findings_report_path)
-    replaced = False
-
-    for p in doc.paragraphs:
-        updated_text = p.text
-
-        if "[NETWORK RANGE]" in updated_text:
-            updated_text = updated_text.replace("[NETWORK RANGE]", network_ranges)
-        if "[SYSTEMS]" in updated_text:
-            updated_text = updated_text.replace("[SYSTEMS]", systems)
-        if "[ADDRESSES]" in updated_text:
-            updated_text = updated_text.replace("[ADDRESSES]", addresses)
-        if "[OPEN PORTS]" in updated_text:
-            updated_text = updated_text.replace("[OPEN PORTS]", open_ports)
-        if "[CUSTOMER]" in updated_text:
-            updated_text = updated_text.replace("[CUSTOMER]", customer)
-
-        if updated_text != p.text:
-            p.clear()
-            run = p.add_run(updated_text)
-            run.font.name = "Corbel"
-            run.font.size = Pt(12)
-            replaced = True
-
-    doc.save(findings_report_path)
-
-    if replaced:
-        print("✅ Host Discovery was successfully populated and saved")
+    if is_singular_plural(network_ranges):
+        network_word = "network range"
+        network_verb = "was"
     else:
-        print("❌ Could not find Host Discovery placeholders in Findings Report")
+        network_word = "network ranges"
+        network_verb = "were"
+    if is_singular_plural(systems):
+        system_word = "system"
+    else:
+        system_word = "systems"
+    if is_singular_plural(addresses):
+        address_word = "address"
+        address_verb = "was"
+    else:
+        address_word = "addresses"
+        address_verb = "were"
+    if is_singular_plural(open_ports):
+        open_port_word = "open port"
+    else:
+        open_port_word = "open ports"
+    doc = Document(findings_report_path)
+    position = None
+    for p in doc.paragraphs:
+        para = p.text
+        if NETWORKS_HOLDER in para or SYSTEMS_HOLDER in para or ADDRESSES_HOLDER in para or OPEN_PORTS_HOLDER in para:
+            position = p
+            break
+    if position is None:
+        print("❌ Could not find Host Discovery section in Findings Report")
+        return
+    new_info1 = place_host_data(position, NETWORKS_HOLDER, network_ranges)
+    new_info2 = place_host_data(position, SYSTEMS_HOLDER, systems)
+    new_info3 = place_host_data(position, ADDRESSES_HOLDER, addresses)
+    new_info4 = place_host_data(position, OPEN_PORTS_HOLDER, open_ports)
+    new_info5 = place_host_data(position, NETWORK_RANGE_WORD, network_word)
+    new_info6 = place_host_data(position, NETWORK_RANGE_VERB, network_verb)
+    new_info7 = place_host_data(position, SYSTEM_WORD, system_word)
+    new_info8 = place_host_data(position, ADDRESS_WORD, address_word)
+    new_info9 = place_host_data(position, ADDRESS_VERB, address_verb)
+    new_info10 = place_host_data(position, OPEN_PORT_WORD, open_port_word)
+    if not all([new_info1, new_info2, new_info3, new_info4, new_info5, new_info6, new_info7, new_info8, new_info9, new_info10]):
+        print("❌ Could not replace one of the placeholder values under Host Discovery in Findings Report")
+        return
+    doc.save(findings_report_path)
+    print("✅ Host Discovery was successfully populated and saved")
 
 def Informational(technical_report: str):
     # where header = "Informational" and Evidence:
@@ -1149,55 +1076,134 @@ def Informational(technical_report: str):
     pdf.close()
     return ""
 
-def Narrative_Exploitation(findings_report_path: str, customer: str) -> None:
-    if customer.strip() == "":
+def Narrative_Exploitation(findings_report_path: str, name: str) -> None:
+    target = "threats to"
+    place_holder = "[CUSTOMER]"
+    #name = customer_name()
+    if name == "":
         print("❌ No customer name was provided for Narrative Exploitation")
+        return
+    modified_name = name + "'s"
+    doc = Document(findings_report_path)
+    position = None
+    for p in doc.paragraphs:
+        para = p.text
+        if target in para and place_holder in para:
+            position = p
+            break
+    if position is None:
+        print("❌ Could not find customer place holder under Narrative, Exploitation in Findings Report")
+        return
+    new_val = place_host_data(position, place_holder, modified_name)
+    if not new_val:
+        print("❌ Could not replace the customer place holder under Narrative, Exploitation in Findings Report")
+        return
+    doc.save(findings_report_path)
+    print("✅ Narrative Exploitation was successfully populated and saved")
+def discovered_threat_totals(technical_report: str) -> dict:
+    findings = severity_counter(technical_report)
+
+    totals = {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Informational": 0
+    }
+
+    for item in findings:
+        if item.rating in totals:
+            totals[item.rating] += 1
+
+    print("✅ Discovered Threat totals extracted from Technical Report")
+    print(totals)
+    return totals
+
+def generate_findings_graphs(totals: dict) -> None:
+    labels = ["Informational", "Low", "Medium", "High", "Critical"]
+    values = [
+        totals["Informational"],
+        totals["Low"],
+        totals["Medium"],
+        totals["High"],
+        totals["Critical"]
+    ]
+
+    total_findings = sum(values)
+
+    # Donut chart
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.pie(values, startangle=90, wedgeprops=dict(width=0.35))
+    ax.text(0, 0, f"Total\nFindings:\n{total_findings}", ha="center", va="center", fontsize=16, weight="bold")
+    plt.savefig("./Reports/findings_donut.png", bbox_inches="tight")
+    plt.close()
+
+    # Line graph
+    fig, ax = plt.subplots(figsize=(8, 4))
+    years = [2023, 2024, 2025]
+
+    for label, val in zip(labels, values):
+        ax.plot(years, [0, 0, val], label=label)
+
+    ax.set_title("Total Findings Over Time (Annually)")
+    ax.legend()
+    plt.savefig("./Reports/findings_line.png", bbox_inches="tight")
+    plt.close()
+
+    print("✅ Findings Summary graphs created")
+
+def insert_findings_graphs(findings_report_path: str) -> None:
+    donut_path = "./Reports/findings_donut.png"
+    line_path = "./Reports/findings_line.png"
+
+    if not os.path.exists(donut_path):
+        print(f"❌ Donut chart not found: {donut_path}")
+        return
+
+    if not os.path.exists(line_path):
+        print(f"❌ Line chart not found: {line_path}")
         return
 
     doc = Document(findings_report_path)
 
-    in_section = False
-    replaced = False
+    insert_after = None
 
-    start_marker = "EXPLOITATION"
-    end_markers = [
-        "POST EXPLOITATION",
-        "FINDINGS SUMMARY",
-        "EXECUTIVE OVERVIEW",
-        "INFORMATIONAL",
-        "APPENDIX"
-    ]
-
-    for p in doc.paragraphs:
+    for i, p in enumerate(doc.paragraphs):
         text = p.text.strip().upper()
-
-        if text == start_marker:
-            in_section = True
-            continue
-
-        if in_section and text in end_markers:
+        if text == "EXECUTIVE OVERVIEW":
+            insert_after = p
             break
 
-        if in_section:
-            updated_text = p.text
-            updated_text = updated_text.replace("[CUSTOMER]", customer)
-            updated_text = updated_text.replace("[CUSTOMER NAME]", customer)
-            updated_text = updated_text.replace("OrbitalFire", customer)
-            updated_text = updated_text.replace("orbital fire", customer)
+    if insert_after is None:
+        print("❌ EXECUTIVE OVERVIEW heading not found in Findings Report")
+        return
 
-            if updated_text != p.text:
-                p.clear()
-                run = p.add_run(updated_text)
-                run.font.name = "Corbel"
-                run.font.size = Pt(12)
-                replaced = True
+    # insert donut chart
+    donut_para = add_new_paragraph(insert_after)
+    donut_run = donut_para.add_run()
+    donut_run.add_picture(donut_path, width=Inches(4.2))
+    donut_para.paragraph_format.space_before = Pt(6)
+    donut_para.paragraph_format.space_after = Pt(8)
+
+    # insert line chart
+    line_para = add_new_paragraph(donut_para)
+    line_run = line_para.add_run()
+    line_run.add_picture(line_path, width=Inches(6.0))
+    line_para.paragraph_format.space_before = Pt(6)
+    line_para.paragraph_format.space_after = Pt(8)
+    for para in doc.paragraphs:
+        if para.text.strip().upper() == "ASSESSMENT RESULTS SUMMARY":
+            para.paragraph_format.page_break_before = True
+            break
 
     doc.save(findings_report_path)
+    print("✅ Findings Summary graphs inserted into Findings Report")
+def Findings_Summary(technical_report: str, findings_report_path: str) -> None:
+    total = discovered_threat_totals(technical_report)
+    generate_findings_graphs(total)
+    insert_findings_graphs(findings_report_path)
 
-    if replaced:
-        print("✅ Narrative Exploitation was successfully populated and saved")
-    else:
-        print("❌ No matching customer text was found in Exploitation section")
+
 def main() -> None:
     # activity_report, findings_report = getReports()
     #automated_testing_activity(DEFAULT_ACTIVITY_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
@@ -1209,17 +1215,14 @@ def main() -> None:
     #print(f"we have {len(ratings)} vulnerabilities")
     #print(ratings)
     #finding_details(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, DEFAULT_RECOMMENDATIONS_PATH, sheetname="External")
+    #IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #Logistics(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
-
-    name = customer_name()
-    totals = discovered_threat_totals(DEFAULT_TECHNICAL_REPORT_PATH)
-    generate_findings_graphs(totals)
-    insert_findings_graphs(DEFAULT_FINDINGS_REPORT_PATH)
-    set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
-    Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH, name)
-    Narrative_Exploitation(DEFAULT_FINDINGS_REPORT_PATH, name)
-    Informational(DEFAULT_TECHNICAL_REPORT_PATH)
+    #Narrative_Exploitation(DEFAULT_FINDINGS_REPORT_PATH, name)
+    #name = customer_name()
+    Findings_Summary(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
+    #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
+    #Informational(DEFAULT_TECHNICAL_REPORT_PATH)
 if __name__ == "__main__":
     main()
