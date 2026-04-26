@@ -1032,18 +1032,21 @@ def customerName(name: str, year: str, findings_report: str) -> None:
     doc = Document(findings_report)
     for i, paragraph in enumerate(doc.paragraphs):
         if paragraph.text == "Penetration Testing":
-            name_slot = doc.paragraphs[i+1]
-            print("Found the customer name slot")
-            print(name_slot.text)
-            name_slot.clear()
-            name_run = name_slot.add_run(name + "\n")
-            year_run = name_slot.add_run(year)
-            name_run.font.name = "Corbel"
-            name_run.font.size = Pt(16)
-            name_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
-            year_run.font.name = "Corbel"
-            year_run.font.size = Pt(16)
-            year_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
+            draft_text = doc.paragraphs[i-1].text
+            if "(DRAFT) findings" in draft_text:
+                name_slot = doc.paragraphs[i+1]
+                print("Found the customer name slot")
+                print(name_slot.text)
+                print(doc.paragraphs[i-1].text)
+                name_slot.clear()
+                name_run = name_slot.add_run(name + "\n")
+                year_run = name_slot.add_run(year)
+                name_run.font.name = "Corbel"
+                name_run.font.size = Pt(16)
+                name_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
+                year_run.font.name = "Corbel"
+                year_run.font.size = Pt(16)
+                year_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
     print("added the customer name")
     doc.save(findings_report)
 
@@ -1064,6 +1067,6 @@ def main() -> None:
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     # Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     # Informational(DEFAULT_TECHNICAL_REPORT_PATH)
-    customerName("Tony Mangino", "2026", DEFAULT_FINDINGS_REPORT_PATH)
+    customerName("Lucas D", "2026", DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
