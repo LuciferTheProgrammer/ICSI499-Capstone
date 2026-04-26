@@ -2,4 +2,4 @@ python-docx
 camelot-py==1.0.9
 pdfplumber
 openai
-pymupdf
+pymupdf==1.27.2

@@ -1009,6 +1009,14 @@ def Informational(technical_report: str):
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
             # save an individual catch to reports
             pixels.save(f"./Reports/Informational{i}.png")
+            drawings = page.get_drawings()
+            print(len(drawings))
+            svg = page.get_svg_image()
+            # print(svg)
+            # with open("./Reports/svg.svg", "w") as file:
+            #     file.write(svg)
+            # 1.27.2
+            print(f"{len(drawings)} is the length")
             if(second_table_identifier):
                 print("second table")
                 top = second_table_identifier[0].y1 + 30
@@ -1019,6 +1027,25 @@ def Informational(technical_report: str):
 
     pdf.close()
     return ""
+
+def customerName(name: str, year: str, findings_report: str) -> None:
+    doc = Document(findings_report)
+    for i, paragraph in enumerate(doc.paragraphs):
+        if paragraph.text == "Penetration Testing":
+            name_slot = doc.paragraphs[i+1]
+            print("Found the customer name slot")
+            print(name_slot.text)
+            name_slot.clear()
+            name_run = name_slot.add_run(name + "\n")
+            year_run = name_slot.add_run(year)
+            name_run.font.name = "Corbel"
+            name_run.font.size = Pt(16)
+            name_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
+            year_run.font.name = "Corbel"
+            year_run.font.size = Pt(16)
+            year_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
+    print("added the customer name")
+    doc.save(findings_report)
 
 def main() -> None:
     # activity_report, findings_report = getReports()
@@ -1036,6 +1063,7 @@ def main() -> None:
     #IPAddress(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #appendix(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     # Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
-    Informational(DEFAULT_TECHNICAL_REPORT_PATH)
+    # Informational(DEFAULT_TECHNICAL_REPORT_PATH)
+    customerName("Tony Mangino", "2026", DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
