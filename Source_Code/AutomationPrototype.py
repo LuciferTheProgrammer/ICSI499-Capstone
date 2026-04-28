@@ -299,6 +299,16 @@ def add_new_paragraph(paragraph):
     paragraph._p.addnext(inserted)
     return Paragraph(inserted, paragraph._parent)
 
+def insert_image_under_heading(doc: Document, heading_text: str, image_path: str) -> bool:
+    for p in doc.paragraphs:
+        if heading_text.upper() in p.text.strip().upper():
+            new_para = add_new_paragraph(p)
+            resize_image(new_para, image_path, max_w=6.3, max_h=3.8, desired_ra=3.8)
+            new_para.paragraph_format.space_before = Pt(6)
+            new_para.paragraph_format.space_after = Pt(8)
+            return True
+    return False
+
 # To populate the Appendix section of the Findings Report.
 def appendix(technical_report: str, findings_report: str) -> None:
     title = "Appendix B: Host Discovery (Opened Ports)"
@@ -1076,7 +1086,10 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
 
 def Informational(technical_report: str, findings_report_path: str) -> None:
     pdf = pymupdf.open(technical_report)
-    image_paths = []
+
+    doppelganger_image = None
+    subdomain_image = None
+    dns_image = None
 
     for i in range(len(pdf)):
         page = pdf[i]
@@ -1090,23 +1103,30 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
                 "Furthermore, the consultant reviewed the DNS records provided by the domains and subdomains discovered to attempt identifying if any valuable information could be obtained."
             )
 
+            image_zoomed = pymupdf.Matrix(2.0, 2.0)
+            left_point = ev[0].x0
+            right_point = page.rect.width - 36
+
+            # First screenshot: Doppelganger Domains / Sub Domain table area
             top = ev[0].y0 + 25
             bottom = page.rect.height - 80
 
             if second_table_identifier:
                 bottom = second_table_identifier[0].y0 - 10
 
-            left_point = ev[0].x0
-            right_point = page.rect.width - 36
             table_container = pymupdf.Rect(left_point, top, right_point, bottom)
-
-            image_zoomed = pymupdf.Matrix(2.0, 2.0)
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
 
-            image_path = f"./Reports/Informational{i}.png"
-            pixels.save(image_path)
-            image_paths.append(image_path)
+            first_image_path = f"./Reports/Informational{i}.png"
+            pixels.save(first_image_path)
 
+            # Assign first screenshot to the first missing section
+            if doppelganger_image is None:
+                doppelganger_image = first_image_path
+            elif subdomain_image is None:
+                subdomain_image = first_image_path
+
+            # Second screenshot: DNS Records table
             if second_table_identifier:
                 top = second_table_identifier[0].y1 + 30
                 bottom = page.rect.height - 30
@@ -1116,36 +1136,31 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
 
                 second_image_path = f"./Reports/Informational-second-{i}.png"
                 second_pixels.save(second_image_path)
-                image_paths.append(second_image_path)
+
+                if dns_image is None:
+                    dns_image = second_image_path
 
     pdf.close()
 
-    if not image_paths:
-        print("❌ No Informational screenshots were created")
-        return
-
     doc = Document(findings_report_path)
 
-    insert_after = None
-    for p in doc.paragraphs:
-        if p.text.strip().upper() == "INFORMATIONAL":
-            insert_after = p
-            break
+    inserted = False
 
-    if insert_after is None:
-        print("❌ Informational section was not found in Findings Report")
-        return
+    if doppelganger_image:
+        inserted = insert_image_under_heading(doc, "DOPPELGANGER DOMAINS TABLE", doppelganger_image) or inserted
 
-    for image_path in image_paths:
-        if os.path.exists(image_path):
-            para = add_new_paragraph(insert_after)
-            resize_image(para, image_path, max_w=6.3, max_h=3.8, desired_ra=3.8)
-            para.paragraph_format.space_before = Pt(6)
-            para.paragraph_format.space_after = Pt(8)
-            insert_after = para
+    if subdomain_image:
+        inserted = insert_image_under_heading(doc, "SUB DOMAIN TABLE", subdomain_image) or inserted
+
+    if dns_image:
+        inserted = insert_image_under_heading(doc, "DNS RECORD", dns_image) or inserted
 
     doc.save(findings_report_path)
-    print("✅ Informational screenshots were inserted into Findings Report")
+
+    if inserted:
+        print("✅ Informational screenshots were inserted under their correct reference sections")
+    else:
+        print("❌ Could not find the Informational reference headings in Findings Report")
 
 def Narrative_Exploitation(findings_report_path: str, name: str) -> None:
     target = "threats to"
