@@ -1,6 +1,6 @@
 # Automation Prototype source code.
 import base64
-import win32com.client
+#import win32com.client
 import re
 import zipfile
 import shutil
@@ -853,30 +853,49 @@ def customer_name()-> str:
     return name
 
 def set_customer_name(findings_report_path: str, name: str) -> None:
-    if name.strip() == "":
-        print("No name was provided. Please try again.")
+    name = name.strip()
+
+    if name == "":
+        print("❌ No customer name was provided")
         return
 
     doc = Document(findings_report_path)
     replaced = False
 
-    targets = ["[CUSTOMER NAME]", "[CUSTOMER]", "OrbitalFire", "orbital fire"]
+    targets = [
+        "[CUSTOMER NAME]",
+        "[CUSTOMER]",
+        "OrbitalFire",
+        "orbital fire",
+        "ORBITALFIRE"
+    ]
 
     for p in doc.paragraphs:
-        original_text = p.text
-        updated_text = original_text
+        for run in p.runs:
+            original_text = run.text
+            updated_text = original_text
 
-        for target in targets:
-            if target in updated_text:
+            for target in targets:
                 updated_text = updated_text.replace(target, name)
+
+            if updated_text != original_text:
+                run.text = updated_text
                 replaced = True
 
-        if updated_text != original_text:
-            p.clear()
-            run = p.add_run(updated_text)
-            run.font.name = "Corbel"
-            run.font.size = Pt(12)
-            #run.font.color.rgb = RGBColor(230, 120, 31)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        original_text = run.text
+                        updated_text = original_text
+
+                        for target in targets:
+                            updated_text = updated_text.replace(target, name)
+
+                        if updated_text != original_text:
+                            run.text = updated_text
+                            replaced = True
 
     doc.save(findings_report_path)
 
@@ -1055,38 +1074,78 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
     doc.save(findings_report_path)
     print("✅ Host Discovery was successfully populated and saved")
 
-def Informational(technical_report: str):
-    # where header = "Informational" and Evidence:
+def Informational(technical_report: str, findings_report_path: str) -> None:
     pdf = pymupdf.open(technical_report)
+    image_paths = []
+
     for i in range(len(pdf)):
         page = pdf[i]
-        ev = page.search_for("Evidence") # evidence part
+        ev = page.search_for("Evidence")
         inf = page.search_for("Informational")
-        if(inf and ev):
+
+        if inf and ev:
             print("valid informational page")
-            second_table_identifier = page.search_for("Furthermore, the consultant reviewed the DNS records provided by the domains and subdomains discovered to attempt identifying if any valuable information could be obtained.")
+
+            second_table_identifier = page.search_for(
+                "Furthermore, the consultant reviewed the DNS records provided by the domains and subdomains discovered to attempt identifying if any valuable information could be obtained."
+            )
+
             top = ev[0].y0 + 25
             bottom = page.rect.height - 80
-            if(second_table_identifier):
-                print("second table")
+
+            if second_table_identifier:
                 bottom = second_table_identifier[0].y0 - 10
+
             left_point = ev[0].x0
             right_point = page.rect.width - 36
             table_container = pymupdf.Rect(left_point, top, right_point, bottom)
+
             image_zoomed = pymupdf.Matrix(2.0, 2.0)
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
-            # save an individual catch to reports
-            pixels.save(f"./Reports/Informational{i}.png")
-            if(second_table_identifier):
-                print("second table")
+
+            image_path = f"./Reports/Informational{i}.png"
+            pixels.save(image_path)
+            image_paths.append(image_path)
+
+            if second_table_identifier:
                 top = second_table_identifier[0].y1 + 30
                 bottom = page.rect.height - 30
+
                 second_table_container = pymupdf.Rect(left_point, top, right_point, bottom)
                 second_pixels = page.get_pixmap(matrix=image_zoomed, clip=second_table_container, alpha=False)
-                second_pixels.save(f"./Reports/Informational-second-{i}.png")
+
+                second_image_path = f"./Reports/Informational-second-{i}.png"
+                second_pixels.save(second_image_path)
+                image_paths.append(second_image_path)
 
     pdf.close()
-    return ""
+
+    if not image_paths:
+        print("❌ No Informational screenshots were created")
+        return
+
+    doc = Document(findings_report_path)
+
+    insert_after = None
+    for p in doc.paragraphs:
+        if p.text.strip().upper() == "INFORMATIONAL":
+            insert_after = p
+            break
+
+    if insert_after is None:
+        print("❌ Informational section was not found in Findings Report")
+        return
+
+    for image_path in image_paths:
+        if os.path.exists(image_path):
+            para = add_new_paragraph(insert_after)
+            resize_image(para, image_path, max_w=6.3, max_h=3.8, desired_ra=3.8)
+            para.paragraph_format.space_before = Pt(6)
+            para.paragraph_format.space_after = Pt(8)
+            insert_after = para
+
+    doc.save(findings_report_path)
+    print("✅ Informational screenshots were inserted into Findings Report")
 
 def Narrative_Exploitation(findings_report_path: str, name: str) -> None:
     target = "threats to"
@@ -1346,7 +1405,7 @@ def Findings_Summary(technical_report: str, findings_report_path: str) -> None:
     #refresh_saved_charts_data(chart_annual, findings_totals, year_stamp=year)
     modify_num_total_findings(folder_document, totals)
     rezip_file(folder_document, findings_report_path)
-    refresh_saved_charts_data(findings_report_path)
+    #refresh_saved_charts_data(findings_report_path)
     print("✅ Findings Summary with existing charts was successfully populated and saved")
 
 def main() -> None:
@@ -1367,7 +1426,7 @@ def main() -> None:
     #Narrative_Exploitation(DEFAULT_FINDINGS_REPORT_PATH, name)
     #name = customer_name()
     #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
-    #Informational(DEFAULT_TECHNICAL_REPORT_PATH)
+    Informational(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     Findings_Summary(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
