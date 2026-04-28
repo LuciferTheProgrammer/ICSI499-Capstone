@@ -1,7 +1,15 @@
 # Automation Prototype source code.
 import base64
+import win32com.client
 import re
+import zipfile
+import shutil
+import tempfile
+from pathlib import Path
+from collections import Counter
 from operator import truediv
+import openpyxl
+from lxml import etree
 import pdfplumber
 import camelot
 from camelot.io import read_pdf
@@ -19,6 +27,9 @@ from docx.oxml import OxmlElement
 from PIL import Image
 from docx.shared import RGBColor
 import matplotlib.pyplot as plt
+from openpyxl.utils import get_column_letter
+
+
 # from packaging.utils import NormalizedName
 
 # default paths we should be using for our reports, i.e. ./Reports
@@ -28,6 +39,7 @@ DEFAULT_GLOSSARY_PATH: str = "./Reports/OrbitalFire-Glossary.csv"
 DEFAULT_TECHNICAL_REPORT_PATH: str = "./Reports/OrbitalFire-TechnicalReportDemo.pdf"
 DEFAULT_EXECUTIVE_REPORT_PATH: str = "./Reports/OrbitalFire-ExecutiveReportDemo.pdf"
 DEFAULT_RECOMMENDATIONS_PATH: str = "./Reports/FindingsDetailsAndRecommendations.xlsx"
+SEVERITIES_LEVELS = ["Informational", "Low", "Medium", "High", "Critical"]
 
 """
 Get the report paths via user input, returns a tuple of the paths we yield.
@@ -1100,109 +1112,242 @@ def Narrative_Exploitation(findings_report_path: str, name: str) -> None:
         return
     doc.save(findings_report_path)
     print("✅ Narrative Exploitation was successfully populated and saved")
-def discovered_threat_totals(technical_report: str) -> dict:
-    findings = severity_counter(technical_report)
 
-    totals = {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Informational": 0
-    }
+def discovered_threats(technical_report: str):
+    container = ""
+    counter_level = Counter({"Informational": 0, "Low": 0, "Medium": 0, "High": 0, "Critical": 0})
+    with pdfplumber.open(technical_report) as pdf:
+        for page in pdf.pages:
+            data = page.extract_text() or ""
+            container = container + "\n" + data
+        begin = container.upper().find("DISCOVERED THREATS")
+        last = container.upper().find("MITRE ATT&CK MAPPINGS")
+        if begin == -1:
+            raise Exception("❌ Could not find Discovered Threats in Technical Report")
+        if last == -1:
+            data_holder = container[begin:]
+        else:
+            data_holder = container[begin:last]
+        for entry in data_holder.splitlines():
+            cleaned = " ".join(entry.split())
+            matching = re.match(r"^(.+?)\s+(Critical|High|Medium|Low|Informational)$", cleaned, re.IGNORECASE)
+            if matching:
+                label_severity = matching.group(2).title()
+                counter_level[label_severity] += 1
+        total = dict(counter_level)
+        return total
 
-    for item in findings:
-        if item.rating in totals:
-            totals[item.rating] += 1
+def annual_year(technical_report: str) -> int:
+    container = ""
+    with pdfplumber.open(technical_report) as pdf:
+        for page in pdf.pages:
+            data = page.extract_text() or ""
+            container = container + "\n" + data
+    matching = re.search(r"\b(20\d{2})\b", container)
+    if not matching:
+        raise Exception("❌ Could not find an annual year time stamp in Technical Report")
+    year = int(matching.group(1))
+    return year
 
-    print("✅ Discovered Threat totals extracted from Technical Report")
-    print(totals)
-    return totals
+def unzip_file(findings_report: str) -> Path:
+    directory = tempfile.mkdtemp()
+    with zipfile.ZipFile(findings_report, "r") as zip_ref:
+        zip_ref.extractall(directory)
+    reference = Path(directory)
+    return reference
 
-def generate_findings_graphs(totals: dict) -> None:
-    labels = ["Informational", "Low", "Medium", "High", "Critical"]
-    values = [
-        totals["Informational"],
-        totals["Low"],
-        totals["Medium"],
-        totals["High"],
-        totals["Critical"]
-    ]
+def rezip_file(folder: Path, output: str) -> None:
+    folder = Path(folder)
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as modified_docx:
+        for file in folder.rglob("*"):
+            if file.is_file():
+                name_holder = file.relative_to(folder)
+                modified_docx.write(file, name_holder)
 
-    total_findings = sum(values)
+def retrieve_excel_from_chart(charts: Path):
+    names = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
+             "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+    converted = str(charts)
+    data_tree = etree.parse(converted)
+    content = data_tree.find(".//c:externalData", names)
+    if content is None:
+        return None
+    corr_index = content.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    combined_names = charts.name + ".rels"
+    paths = charts.parent / "_rels" / combined_names
+    if not paths.exists():
+        return None
+    converted2 = str(paths)
+    tree_relatives = etree.parse(converted2)
+    root_relatives  = tree_relatives.getroot()
+    for relative in root_relatives:
+        rel_id = relative.get("Id")
+        if rel_id == corr_index:
+            target = relative.get("Target")
+            excel_path = charts.parent / target
+            res = excel_path.resolve()
+            return res
+    return None
 
-    # Donut chart
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie(values, startangle=90, wedgeprops=dict(width=0.35))
-    ax.text(0, 0, f"Total\nFindings:\n{total_findings}", ha="center", va="center", fontsize=16, weight="bold")
-    plt.savefig("./Reports/findings_donut.png", bbox_inches="tight")
-    plt.close()
+def search_charts(document_folder: Path):
+    charts_dir = document_folder/ "word" / "charts"
+    files = list(charts_dir.glob("chart*.xml"))
+    target_text = "total findings over time"
+    chart_annual = None
+    chart_severity = None
+    for chart in files:
+        xml_data = chart.read_text(encoding="utf-8", errors="ignore").lower()
+        present_severity = True
+        for label in SEVERITIES_LEVELS:
+            label_mod = label.lower()
+            if label_mod not in xml_data:
+                present_severity = False
+                break
+        if present_severity and target_text not in xml_data:
+            chart_severity = chart
+        if target_text in xml_data:
+            chart_annual = chart
+    return chart_severity, chart_annual
 
-    # Line graph
-    fig, ax = plt.subplots(figsize=(8, 4))
-    years = [2023, 2024, 2025]
+def modify_severity_chart(excel: Path, total_count) -> None:
+    workbook = openpyxl.load_workbook(excel)
+    worksheet = workbook.active
+    severity_cols = {}
+    upper_bound = worksheet.max_row + 1
+    for r in range(1, upper_bound):
+        label = str(worksheet.cell(row=r, column=1).value).strip()
+        if label in SEVERITIES_LEVELS:
+            worksheet.cell(row=r, column=2).value = total_count[label]
+    workbook.save(excel)
 
-    for label, val in zip(labels, values):
-        ax.plot(years, [0, 0, val], label=label)
-
-    ax.set_title("Total Findings Over Time (Annually)")
-    ax.legend()
-    plt.savefig("./Reports/findings_line.png", bbox_inches="tight")
-    plt.close()
-
-    print("✅ Findings Summary graphs created")
-
-def insert_findings_graphs(findings_report_path: str) -> None:
-    donut_path = "./Reports/findings_donut.png"
-    line_path = "./Reports/findings_line.png"
-
-    if not os.path.exists(donut_path):
-        print(f"❌ Donut chart not found: {donut_path}")
-        return
-
-    if not os.path.exists(line_path):
-        print(f"❌ Line chart not found: {line_path}")
-        return
-
-    doc = Document(findings_report_path)
-
-    insert_after = None
-
-    for i, p in enumerate(doc.paragraphs):
-        text = p.text.strip().upper()
-        if text == "EXECUTIVE OVERVIEW":
-            insert_after = p
+def modify_annual_chart(excel: Path, year: int, total_count) -> None:
+    workbook = openpyxl.load_workbook(excel)
+    worksheet = workbook.active
+    severity_cols = {}
+    upper_bound = worksheet.max_column + 1
+    for c in range(1, upper_bound):
+        header_info = str(worksheet.cell(row=1, column=c).value).strip()
+        if header_info in SEVERITIES_LEVELS:
+            severity_cols[header_info] = c
+    if not severity_cols:
+        raise Exception("❌ Could not find the severity labels in the yearly annual chart workbook in Findings Report")
+    row_year = None
+    upper_bound = worksheet.max_row + 1
+    for r in range(2, upper_bound):
+        data = worksheet.cell(row=r, column=1).value
+        converted_data = str(data).strip()
+        year_modified = str(year)
+        if converted_data == year_modified:
+            row_year = r
             break
+    if row_year is None:
+        row_year = worksheet.max_row + 1
+        worksheet.cell(row=row_year, column=1).value = year
+    for entry in SEVERITIES_LEVELS:
+        column = severity_cols[entry]
+        worksheet.cell(row=row_year, column=column).value = total_count[entry]
+    workbook.save(excel)
 
-    if insert_after is None:
-        print("❌ EXECUTIVE OVERVIEW heading not found in Findings Report")
-        return
+def modify_annual_chart_range(chart: Path, workbook_path: Path) -> None:
+    marker1 = ".//c:ser"
+    marker2 = ".//c:tx//c:v"
+    marker3 = ".//c:cat//c:f"
+    marker4 = ".//c:val//c:f"
+    workbook = openpyxl.load_workbook(workbook_path, data_only=True)
+    worksheet = workbook.active
+    maximum_row = worksheet.max_row
+    name = {"c" : "http://schemas.openxmlformats.org/drawingml/2006/chart"}
+    converted = str(chart)
+    holder_tree = etree.parse(converted)
+    holder_root = holder_tree.getroot()
+    sev_columns = {}
+    upper_bound = worksheet.max_column + 1
+    for column in range(1, upper_bound):
+        header_info = str(worksheet.cell(row=1, column=column).value).strip()
+        if header_info in SEVERITIES_LEVELS:
+            sev_columns[header_info] = column
+    for entries in holder_root.findall(marker1, name):
+        container_name1 = entries.find(marker2, name)
+        if container_name1 is None:
+            continue
+        label = container_name1.text
+        if label not in sev_columns:
+            continue
+        number = sev_columns[label]
+        character = get_column_letter(number)
+        categorical_form = entries.find(marker3, name)
+        val_form = entries.find(marker4, name)
+        if categorical_form is not None:
+            categorical_form.text = f"Sheet1!$A$2:$A${maximum_row}"
+        if val_form is not None:
+            val_form.text = f"Sheet1!${character}$2:${character}${maximum_row}"
+    holder_tree.write(converted, encoding="utf-8", xml_declaration=True, standalone=False)
 
-    # insert donut chart
-    donut_para = add_new_paragraph(insert_after)
-    donut_run = donut_para.add_run()
-    donut_run.add_picture(donut_path, width=Inches(4.2))
-    donut_para.paragraph_format.space_before = Pt(6)
-    donut_para.paragraph_format.space_after = Pt(8)
+def refresh_saved_charts_data(findings_report: str) -> None:
+   file_path = str(Path(findings_report).resolve())
+   word_container = win32com.client.Dispatch("Word.Application")
+   word_container.Visible = False
+   doc_holder = word_container.Documents.Open(file_path)
+   for choice in doc_holder.InlineShapes:
+       try:
+           if choice.HasChart:
+               choice.Chart.ChartData.Activate()
+               choice.Chart.Refresh()
+               choice.Chart.ChartData.Workbook.Close()
+       except Exception:
+            pass
+   for choice in doc_holder.Shapes:
+        try:
+            if choice.HasChart:
+                choice.Chart.ChartData.Activate()
+                choice.Chart.Refresh()
+                choice.Chart.ChartData.Workbook.Close()
+        except Exception:
+            pass
+   doc_holder.Fields.Update()
+   doc_holder.Save()
+   doc_holder.Close()
+   word_container.Quit()
+   print("✅ Charts in Findings Report was refreshed successfully")
 
-    # insert line chart
-    line_para = add_new_paragraph(donut_para)
-    line_run = line_para.add_run()
-    line_run.add_picture(line_path, width=Inches(6.0))
-    line_para.paragraph_format.space_before = Pt(6)
-    line_para.paragraph_format.space_after = Pt(8)
-    for para in doc.paragraphs:
-        if para.text.strip().upper() == "ASSESSMENT RESULTS SUMMARY":
-            para.paragraph_format.page_break_before = True
-            break
+def modify_num_total_findings(document_folder: Path, total: int) -> None:
+    folder = document_folder / "word"
+    for xml_file in folder.rglob("*.xml"):
+        data = xml_file.read_text(encoding="utf-8", errors="ignore")
+        modified_data = re.sub(r"Total\s*Findings\s*:?\s*\d+", f"Total Findings: {total}", data, flags=re.IGNORECASE)
+        modified_data = re.sub(r"(<a:t>\s*Total\s*Findings:?\s*</a:t>.*?<a:t>)\d+(</a:t>)", rf"\g<1>{total}\g<2>", modified_data, flags=re.IGNORECASE | re.DOTALL)
+        if modified_data != data:
+            xml_file.write_text(modified_data, encoding="utf-8")
 
-    doc.save(findings_report_path)
-    print("✅ Findings Summary graphs inserted into Findings Report")
 def Findings_Summary(technical_report: str, findings_report_path: str) -> None:
-    total = discovered_threat_totals(technical_report)
-    generate_findings_graphs(total)
-    insert_findings_graphs(findings_report_path)
-
+    findings_totals = discovered_threats(technical_report)
+    year = annual_year(technical_report)
+    totals = sum(findings_totals.values())
+    folder_document = unzip_file(findings_report_path)
+    chart_severity, chart_annual = search_charts(folder_document)
+    if chart_severity is None:
+        print("❌ Could not find the severity chart in Findings Report")
+        return
+    if chart_annual is None:
+        print("❌ Could not find the annual chart in Findings Report")
+        return
+    workbook_severity = retrieve_excel_from_chart(chart_severity)
+    workbook_annual = retrieve_excel_from_chart(chart_annual)
+    if workbook_severity is None:
+        print("❌ Could not find the severity chart workbook in Findings Report")
+        return
+    if workbook_annual is None:
+        print("❌ Could not find the annual chart workbook in Findings Report")
+        return
+    modify_severity_chart(workbook_severity, findings_totals)
+    modify_annual_chart(workbook_annual, year, findings_totals)
+    modify_annual_chart_range(chart_annual, workbook_annual)
+    #refresh_saved_charts_data(chart_severity, findings_totals)
+    #refresh_saved_charts_data(chart_annual, findings_totals, year_stamp=year)
+    modify_num_total_findings(folder_document, totals)
+    rezip_file(folder_document, findings_report_path)
+    refresh_saved_charts_data(findings_report_path)
+    print("✅ Findings Summary with existing charts was successfully populated and saved")
 
 def main() -> None:
     # activity_report, findings_report = getReports()
@@ -1221,8 +1366,8 @@ def main() -> None:
     #Host_Discovery(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #Narrative_Exploitation(DEFAULT_FINDINGS_REPORT_PATH, name)
     #name = customer_name()
-    Findings_Summary(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
     #set_customer_name(DEFAULT_FINDINGS_REPORT_PATH, name)
     #Informational(DEFAULT_TECHNICAL_REPORT_PATH)
+    Findings_Summary(DEFAULT_TECHNICAL_REPORT_PATH, DEFAULT_FINDINGS_REPORT_PATH)
 if __name__ == "__main__":
     main()
