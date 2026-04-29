@@ -28,17 +28,21 @@ from PIL import Image
 from docx.shared import RGBColor
 import matplotlib.pyplot as plt
 from openpyxl.utils import get_column_letter
+import win32com
 
 
 # from packaging.utils import NormalizedName
 
-# default paths we should be using for our reports, i.e. ./Reports
-DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
-DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
-DEFAULT_GLOSSARY_PATH: str = "./Reports/OrbitalFire-Glossary.csv"
-DEFAULT_TECHNICAL_REPORT_PATH: str = "./Reports/OrbitalFire-TechnicalReportDemo.pdf"
-DEFAULT_EXECUTIVE_REPORT_PATH: str = "./Reports/OrbitalFire-ExecutiveReportDemo.pdf"
-DEFAULT_RECOMMENDATIONS_PATH: str = "./Reports/FindingsDetailsAndRecommendations.xlsx"
+# default paths are anchored to this source file so they work from any launch directory
+SOURCE_DIR = Path(__file__).resolve().parent
+REPORTS_DIR = SOURCE_DIR / "Reports"
+
+DEFAULT_ACTIVITY_REPORT_PATH: str = str(REPORTS_DIR / "OrbitalFire-ActivityReportDemo.pdf")
+DEFAULT_FINDINGS_REPORT_PATH: str = str(REPORTS_DIR / "Sample499" / "FindingsReportTest.docx")
+DEFAULT_GLOSSARY_PATH: str = str(REPORTS_DIR / "OrbitalFire-Glossary.csv")
+DEFAULT_TECHNICAL_REPORT_PATH: str = str(REPORTS_DIR / "OrbitalFire-TechnicalReportDemo.pdf")
+DEFAULT_EXECUTIVE_REPORT_PATH: str = str(REPORTS_DIR / "OrbitalFire-ExecutiveReportDemo.pdf")
+DEFAULT_RECOMMENDATIONS_PATH: str = str(REPORTS_DIR / "FindingsDetailsAndRecommendations.xlsx")
 SEVERITIES_LEVELS = ["Informational", "Low", "Medium", "High", "Critical"]
 
 """
@@ -269,7 +273,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
         right_component = right_component.strip()
         body_cont1 = new_position.insert_paragraph_before()
         body_cont1.style = "List Number 2"
-        flame = "./Reports/gray_flame.png"
+        flame = str(REPORTS_DIR / "gray_flame.png")
         flame_holder = body_cont1.add_run()
         flame_holder.add_picture(flame, width=Pt(12))
         body_cont1.add_run(" ")
@@ -299,20 +303,121 @@ def add_new_paragraph(paragraph):
     paragraph._p.addnext(inserted)
     return Paragraph(inserted, paragraph._parent)
 
-def insert_image_under_heading(doc: Document, heading_text: str, image_path: str) -> bool:
+def normalize_anchor_text(text: str) -> str:
+    return " ".join(text.upper().split()).strip()
+
+def insert_image_under_heading(doc: Document, heading_text: str, image_path: str):
+    """
+    Inserts an image under a heading anchor in the document.
+    Returns the image paragraph on success, None on failure.
+    """
+    normalized_heading = normalize_anchor_text(heading_text)
+    target_paragraph = None
+
+    print(f"🔍 Searching for anchor: '{heading_text}' (normalized: '{normalized_heading}')")
+    
+    # First pass: exact match
     for p in doc.paragraphs:
-        if heading_text.upper() in p.text.strip().upper():
-            new_para = add_new_paragraph(p)
-            resize_image(new_para, image_path, max_w=6.3, max_h=3.8, desired_ra=3.8)
-            new_para.paragraph_format.space_before = Pt(6)
-            new_para.paragraph_format.space_after = Pt(8)
-            return True
-    return False
+        if normalize_anchor_text(p.text) == normalized_heading:
+            target_paragraph = p
+            print(f"✓ Found exact match at paragraph: '{p.text[:80]}'")
+            break
+
+    # Second pass: paragraph starts with the anchor text (e.g., "SUB DOMAIN TABLE:" or "SUB DOMAIN TABLE -")
+    if target_paragraph is None:
+        for p in doc.paragraphs:
+            normalized_p_text = normalize_anchor_text(p.text)
+            if normalized_p_text.startswith(normalized_heading):
+                target_paragraph = p
+                print(f"✓ Found startswith match at paragraph: '{p.text[:80]}'")
+                break
+
+    # Third pass: the anchor is the ONLY significant text in the paragraph (allowing for punctuation)
+    if target_paragraph is None:
+        for p in doc.paragraphs:
+            normalized_p_text = normalize_anchor_text(p.text)
+            # Remove common punctuation and check if what's left is just the anchor
+            cleaned = normalized_p_text.strip(":-–—.,;!?()[]{}\"'")
+            if cleaned == normalized_heading:
+                target_paragraph = p
+                print(f"✓ Found cleaned match at paragraph: '{p.text[:80]}'")
+                break
+
+    # Fourth pass: anchor text is contained anywhere within the paragraph (e.g., "Reference:\nDOPPELGANGER DOMAINS TABLE")
+    if target_paragraph is None:
+        for p in doc.paragraphs:
+            normalized_p_text = normalize_anchor_text(p.text)
+            if normalized_heading in normalized_p_text:
+                target_paragraph = p
+                print(f"✓ Found anchor embedded in paragraph: '{p.text[:100]}...'")
+                break
+
+    if target_paragraph is None:
+        print(f"✗ Anchor '{heading_text}' not found in document")
+        print(f"  📄 Showing paragraphs containing relevant keywords:")
+        search_terms = ['DOPPELGANGER', 'SUB DOMAIN', 'DNS RECORD', 'REFERENCE', 'TABLE', 'DOMAIN INFORMATION']
+        for idx, p in enumerate(doc.paragraphs):
+            if p.text.strip():
+                p_upper = p.text.upper()
+                if any(term in p_upper for term in search_terms):
+                    print(f"    [{idx}] '{p.text[:200]}'")
+        return None
+
+    # Split the paragraph at the anchor text position
+    original_text = target_paragraph.text
+    
+    # Find anchor position (case-insensitive)
+    anchor_pattern = re.compile(re.escape(heading_text), re.IGNORECASE)
+    match = anchor_pattern.search(original_text)
+    
+    if not match:
+        print(f"  ✗ Anchor text matching failed (shouldn't happen)")
+        return None
+    
+    text_before = original_text[:match.start()].rstrip()
+    text_after = original_text[match.end():].lstrip()
+    
+    print(f"  📝 Original paragraph length: {len(original_text)} chars")
+    print(f"  📝 Text before anchor: {len(text_before)} chars")
+    print(f"  📝 Anchor text: '{heading_text}'")
+    print(f"  📝 Text after anchor: {len(text_after)} chars")
+    print(f"  → Image file exists: {os.path.exists(image_path)}")
+    
+    # Update the original paragraph to contain only text before the anchor
+    target_paragraph.text = text_before
+    
+    # Create paragraph for the image
+    image_para = add_new_paragraph(target_paragraph)
+    inserted_ok = resize_image(image_para, image_path, max_w=6.3, max_h=3.8, desired_ra=3.8)
+    
+    if not inserted_ok:
+        # Rollback: restore original text and remove image paragraph
+        target_paragraph.text = original_text
+        parent = image_para._element.getparent()
+        if parent is not None:
+            parent.remove(image_para._element)
+        print(f"  ✗ Image insertion failed for '{heading_text}' - changes rolled back")
+        return None
+    
+    image_para.paragraph_format.space_before = Pt(6)
+    image_para.paragraph_format.space_after = Pt(6)
+    
+    # If there's text after the anchor, create a new paragraph for it
+    if text_after:
+        after_para = add_new_paragraph(image_para)
+        after_para.text = text_after
+        after_para.paragraph_format.space_before = Pt(6)
+        print(f"  ✓ Split paragraph: kept {len(text_before)} chars before, inserted image, moved {len(text_after)} chars after")
+    else:
+        print(f"  ✓ Replaced anchor with image (no text after)")
+    
+    return image_para
 
 # To populate the Appendix section of the Findings Report.
 def appendix(technical_report: str, findings_report: str) -> None:
     title = "Appendix B: Host Discovery (Opened Ports)"
-    image_container = "./Reports/OPEN_PORTS.PNG"
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    image_container = str(REPORTS_DIR / "OPEN_PORTS.PNG")
     pdf_p = pymupdf.open(technical_report)
     target = None
     table_container = None
@@ -412,21 +517,30 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 print(f"vuln detected: {frame[2]}")
     return frames
 
-def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
-    with Image.open(file_image) as image:
-        pixel_w, pixel_h = image.size
-        if pixel_w == 0 or pixel_h == 0:
-            return
-        prop = pixel_w / pixel_h
-        modified_w = max_w
-        if prop > desired_ra:
-            modified_w = 5.8
-        final_w = modified_w
-        final_h = final_w / prop
-        if max_h < final_h:
-            final_h = max_h
-            final_w = final_h * prop
-        p.add_run().add_picture(file_image, width=Inches(final_w), height=Inches(final_h))
+def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> bool:
+    if not os.path.exists(file_image):
+        print(f"WARNING: Image file not found for insertion: {file_image}")
+        return False
+
+    try:
+        with Image.open(file_image) as image:
+            pixel_w, pixel_h = image.size
+            if pixel_w == 0 or pixel_h == 0:
+                return False
+            prop = pixel_w / pixel_h
+            modified_w = max_w
+            if prop > desired_ra:
+                modified_w = 5.8
+            final_w = modified_w
+            final_h = final_w / prop
+            if max_h < final_h:
+                final_h = max_h
+                final_w = final_h * prop
+            p.add_run().add_picture(file_image, width=Inches(final_w), height=Inches(final_h))
+        return True
+    except Exception as e:
+        print(f"WARNING: Failed to insert image '{file_image}': {e}")
+        return False
 
 def modify_bounds(container, top, bottom, left, right, x_padding = 4, y_padding = 4):
     max_left = max(left, container.x0 - x_padding)
@@ -638,7 +752,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                 counter += 2
                 continue
             counter += 1
-    image_directory = "./Reports/Findings_Details"
+    image_directory = str(REPORTS_DIR / "Findings_Details")
     os.makedirs(image_directory, exist_ok=True)
     for i, find in enumerate(finds, start=1):
         find["affected_nodes_table"] = None
@@ -1084,12 +1198,84 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
     doc.save(findings_report_path)
     print("✅ Host Discovery was successfully populated and saved")
 
+def capture_dns_continuation_parts(pdf, start_page_index: int, second_table_rect: pymupdf.Rect, output_path: str, image_zoomed: pymupdf.Matrix) -> tuple:
+    """
+    Captures a DNS table that may be split across multiple pages.
+    HARDCODED: Always captures the next page as continuation.
+    Returns tuple of (first_image_path, second_image_path) or (first_image_path, None) if no continuation.
+    """
+    print(f"  📊 Capturing DNS table starting on page {start_page_index + 1}...")
+    
+    start_page = pdf[start_page_index]
+    
+    # Capture the first part of the DNS table
+    first_pixels = start_page.get_pixmap(matrix=image_zoomed, clip=second_table_rect, alpha=False)
+    first_pixels.save(output_path)
+    
+    # Apply 25% bottom crop to remove any page footer/noise
+    with Image.open(output_path) as img:
+        width, height = img.size
+        trimmed_height = int(height * 0.75)
+        if trimmed_height > 0 and trimmed_height < height:
+            img.crop((0, 0, width, trimmed_height)).save(output_path)
+            print(f"    ✂️  Cropped bottom 25% from first DNS capture")
+    
+    # HARDCODED: Always capture the immediate next page as continuation
+    next_page_index = start_page_index + 1
+    
+    if next_page_index >= len(pdf):
+        print(f"    ℹ️  No next page available - DNS table on last page")
+        return (output_path, None)
+    
+    print(f"    📄 Capturing continuation from page {next_page_index + 1} (HARDCODED)...")
+    
+    next_page = pdf[next_page_index]
+    
+    # Start capture from top of page, minimal offset to avoid cutting off rows
+    # HARDCODED: Capture top portion of page 8 (table continuation area only)
+    continuation_top = 36
+    # Capture approximately top 2/3 of page to get full table without excessive whitespace
+    continuation_bottom = next_page.rect.height * 0.65
+    continuation_clip = pymupdf.Rect(36, continuation_top, next_page.rect.width - 36, continuation_bottom)
+    continuation_path = str(REPORTS_DIR / "DNS-Record2.png")
+    next_page.get_pixmap(matrix=image_zoomed, clip=continuation_clip, alpha=False).save(continuation_path)
+    
+    # Apply cropping to remove ALL surrounding whitespace (match other tables)
+    with Image.open(continuation_path) as img:
+        width, height = img.size
+        # Aggressive crop: remove whitespace from all sides to match other table style
+        crop_left = int(width * 0.05)   # Remove left margin
+        crop_top = int(height * 0.02)   # Minimal top to keep first row
+        crop_right = int(width * 0.98)  # Remove right margin
+        crop_bottom = int(height * 0.45)  # Keep only table rows, remove bottom whitespace
+        if crop_bottom > crop_top and crop_right > crop_left:
+            img.crop((crop_left, crop_top, crop_right, crop_bottom)).save(continuation_path)
+            print(f"      ✂️  Cropped all whitespace from continuation table")
+    
+    print(f"      ✅ Captured continuation to {continuation_path}")
+    
+    return (output_path, continuation_path)
+
+def number_to_word(n: int) -> str:
+    """Convert number to word form (1-20 supported)"""
+    words = {
+        1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+        6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
+        11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen",
+        16: "sixteen", 17: "seventeen", 18: "eighteen", 19: "nineteen", 20: "twenty"
+    }
+    return words.get(n, str(n))
+
 def Informational(technical_report: str, findings_report_path: str) -> None:
     pdf = pymupdf.open(technical_report)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     doppelganger_image = None
     subdomain_image = None
     dns_image = None
+    first_table_candidates = []
+    doppelganger_count = None
+    doppelganger_page_index = None
 
     for i in range(len(pdf)):
         page = pdf[i]
@@ -1115,46 +1301,199 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
                 bottom = second_table_identifier[0].y0 - 10
 
             table_container = pymupdf.Rect(left_point, top, right_point, bottom)
+            table_text = page.get_text("text", clip=table_container).upper()
+
+            def headers_in_clip(label: str):
+                res = []
+                for box in page.search_for(label):
+                    if box.y0 >= (table_container.y0 - 6) and box.y1 <= (table_container.y1 + 6):
+                        res.append(box)
+                return res
+
+            def same_header_row(a_boxes, b_boxes, tolerance: float = 8.0) -> bool:
+                for a in a_boxes:
+                    for b in b_boxes:
+                        if abs(a.y0 - b.y0) <= tolerance:
+                            return True
+                return False
+
+            has_misspelling_col = "MISSPELLING TECHNIQUE" in table_text
+            has_domain_name_col = "DOMAIN NAME" in table_text
+            has_ip_assoc_col = "IP ADDRESS ASSOCIATED WITH DOMAIN" in table_text
+            has_country_col = "COUNTRY" in table_text
+            is_doppelganger_table = has_misspelling_col or (has_domain_name_col and (has_ip_assoc_col or has_country_col))
+
+            subdomain_headers = headers_in_clip("SUB DOMAIN")
+            record_type_headers = headers_in_clip("RECORD TYPE")
+            ip_address_headers = headers_in_clip("IP ADDRESS")
+            data_headers = headers_in_clip("DATA")
+
+            has_record_type_col = len(record_type_headers) > 0
+            has_ip_address_col = len(ip_address_headers) > 0
+            subdomain_with_record = same_header_row(subdomain_headers, record_type_headers)
+            subdomain_with_ip = same_header_row(subdomain_headers, ip_address_headers)
+            subdomain_with_data = same_header_row(subdomain_headers, data_headers)
+
+            # Unique table identifiers for this template:
+            # DNS table -> RECORD TYPE, Sub Domain table -> IP ADDRESS.
+            is_dns_like_table = has_record_type_col and not is_doppelganger_table
+            is_subdomain_table = has_ip_address_col and not has_record_type_col and not is_doppelganger_table
+
+            table_kind = "unknown"
+            if is_doppelganger_table:
+                table_kind = "doppelganger"
+            elif is_subdomain_table:
+                table_kind = "subdomain"
+            elif is_dns_like_table:
+                table_kind = "dns_like"
+
+            if table_kind == "doppelganger":
+                first_image_path = str(REPORTS_DIR / f"Doppelganger-Domains-Table-{i}.png")
+            elif table_kind == "subdomain":
+                first_image_path = str(REPORTS_DIR / f"Sub-Domain-Table-{i}.png")
+            elif table_kind == "dns_like":
+                first_image_path = str(REPORTS_DIR / f"DNS-Like-Table-{i}.png")
+            else:
+                first_image_path = str(REPORTS_DIR / f"Informational-Table-{i}.png")
+
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
-
-            first_image_path = f"./Reports/Informational{i}.png"
             pixels.save(first_image_path)
-
-            # Assign first screenshot to the first missing section
-            if doppelganger_image is None:
-                doppelganger_image = first_image_path
-            elif subdomain_image is None:
-                subdomain_image = first_image_path
+            print(f"  Page {i}: Captured '{table_kind}' table -> {first_image_path}")
+            if table_kind == "subdomain":
+                with Image.open(first_image_path) as img:
+                    width, height = img.size
+                    crop_top = int(height * 0.10)
+                    if crop_top > 0 and crop_top < height:
+                        img.crop((0, crop_top, width, height)).save(first_image_path)
+            
+            # Count rows in doppelganger table
+            if table_kind == "doppelganger" and doppelganger_count is None:
+                tables = page.find_tables(clip=table_container)
+                if tables and tables.tables:
+                    table = tables.tables[0]
+                    # Count rows excluding header (subtract 1)
+                    row_count = len(table.extract()) - 1
+                    if row_count > 0:
+                        doppelganger_count = row_count
+                        doppelganger_page_index = i
+                        print(f"    📊 Found {doppelganger_count} doppelganger domain(s)")
+            
+            first_table_candidates.append({"page": i, "path": first_image_path, "kind": table_kind})
 
             # Second screenshot: DNS Records table
-            if second_table_identifier:
+            if second_table_identifier and dns_image is None:
                 top = second_table_identifier[0].y1 + 30
                 bottom = page.rect.height - 30
-
                 second_table_container = pymupdf.Rect(left_point, top, right_point, bottom)
-                second_pixels = page.get_pixmap(matrix=image_zoomed, clip=second_table_container, alpha=False)
-
-                second_image_path = f"./Reports/Informational-second-{i}.png"
-                second_pixels.save(second_image_path)
-
+                
+                first_dns_path = str(REPORTS_DIR / "DNS-Record1.png")
+                dns_part1, dns_part2 = capture_dns_continuation_parts(pdf, i, second_table_container, first_dns_path, image_zoomed)
+                
                 if dns_image is None:
-                    dns_image = second_image_path
+                    dns_image = (dns_part1, dns_part2)
+
+    used_paths = set()
+    for candidate in first_table_candidates:
+        if candidate["kind"] == "dns_like":
+            continue
+        if candidate["kind"] == "doppelganger" and doppelganger_image is None:
+            doppelganger_image = candidate["path"]
+            used_paths.add(candidate["path"])
+        elif candidate["kind"] == "subdomain" and subdomain_image is None:
+            subdomain_image = candidate["path"]
+            used_paths.add(candidate["path"])
+
+    for candidate in first_table_candidates:
+        if candidate["kind"] == "dns_like":
+            continue
+        if doppelganger_image is None:
+            doppelganger_image = candidate["path"]
+            used_paths.add(candidate["path"])
+            continue
+        if subdomain_image is None and candidate["path"] not in used_paths:
+            subdomain_image = candidate["path"]
+            used_paths.add(candidate["path"])
+            continue
+        if doppelganger_image and subdomain_image:
+            break
 
     pdf.close()
 
     doc = Document(findings_report_path)
 
+    print(f"\n📋 Informational Image Assignment:")
+    print(f"  Doppelganger: {doppelganger_image if doppelganger_image else 'None'}")
+    print(f"  Subdomain:    {subdomain_image if subdomain_image else 'None'}")
+    if dns_image:
+        dns_part1, dns_part2 = dns_image
+        print(f"  DNS Part 1:   {dns_part1}")
+        print(f"  DNS Part 2:   {dns_part2 if dns_part2 else 'None'}")
+    else:
+        print(f"  DNS:          None")
+    print(f"\n🔧 Starting document insertions...")
+
     inserted = False
 
     if doppelganger_image:
-        inserted = insert_image_under_heading(doc, "DOPPELGANGER DOMAINS TABLE", doppelganger_image) or inserted
+        print(f"\n[1/3] Attempting Doppelganger insertion...")
+        result = insert_image_under_heading(doc, "DOPPELGANGER DOMAINS TABLE", doppelganger_image)
+        inserted = (result is not None) or inserted
 
     if subdomain_image:
-        inserted = insert_image_under_heading(doc, "SUB DOMAIN TABLE", subdomain_image) or inserted
+        print(f"\n[2/3] Attempting Subdomain insertion...")
+        inserted_subdomain = insert_image_under_heading(doc, "SUB DOMAIN TABLE", subdomain_image)
+        if not inserted_subdomain:
+            print(f"  Retrying with plural variant...")
+            inserted_subdomain = insert_image_under_heading(doc, "SUB DOMAINS TABLE", subdomain_image)
+        inserted = (inserted_subdomain is not None) or inserted
 
     if dns_image:
-        inserted = insert_image_under_heading(doc, "DNS RECORD", dns_image) or inserted
+        dns_part1, dns_part2 = dns_image
+        print(f"\n[3/3] Attempting DNS insertion...")
+        dns_para = insert_image_under_heading(doc, "DNS RECORD(S) TABLE", dns_part1)
+        if not dns_para:
+            print(f"  Retrying with variant 'DNS RECORD TABLE'...")
+            dns_para = insert_image_under_heading(doc, "DNS RECORD TABLE", dns_part1)
+        if not dns_para:
+            print(f"  Retrying with variant 'DNS RECORD'...")
+            dns_para = insert_image_under_heading(doc, "DNS RECORD", dns_part1)
+        
+        # Insert second DNS part if it exists and first part was successfully inserted
+        if dns_para and dns_part2:
+            print(f"  📎 Inserting DNS continuation (part 2)...")
+            continuation_para = add_new_paragraph(dns_para)
+            # Use resize_image for proper scaling to avoid page breaks
+            inserted_ok = resize_image(continuation_para, dns_part2, max_w=6.3, max_h=3.5, desired_ra=3.8)
+            if inserted_ok:
+                continuation_para.paragraph_format.space_before = Pt(6)
+                continuation_para.paragraph_format.space_after = Pt(6)
+                print(f"    ✅ DNS part 2 inserted after part 1")
+            else:
+                # Fallback: remove the paragraph if image insertion failed
+                parent = continuation_para._element.getparent()
+                if parent is not None:
+                    parent.remove(continuation_para._element)
+                print(f"    ⚠️  DNS part 2 insertion failed")
+        
+        inserted = (dns_para is not None) or inserted
 
+    # Replace NUMBER (#) with actual doppelganger count
+    if doppelganger_count is not None:
+        print(f"\n[Extra] Replacing doppelganger count placeholder...")
+        number_word = number_to_word(doppelganger_count)
+        replacement_text = f"{number_word} ({doppelganger_count})"
+        
+        replaced = False
+        for p in doc.paragraphs:
+            if "NUMBER (#)" in p.text:
+                p.text = p.text.replace("NUMBER (#)", replacement_text)
+                print(f"  ✅ Replaced 'NUMBER (#)' with '{replacement_text}'")
+                replaced = True
+                break
+        
+        if not replaced:
+            print(f"  ⚠️  Could not find 'NUMBER (#)' placeholder in Findings Report")
+    
     doc.save(findings_report_path)
 
     if inserted:

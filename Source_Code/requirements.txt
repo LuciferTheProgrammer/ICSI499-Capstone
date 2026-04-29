@@ -3,3 +3,4 @@ camelot-py==1.0.9
 pdfplumber
 openai
 pymupdf
+flask

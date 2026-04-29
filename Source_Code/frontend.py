@@ -356,11 +356,16 @@ class App(ctk.CTk):
     def _run_testing(self):
         activity = self.activity_var.get().strip()
         findings = self.findings_var.get().strip()
+        technical = self.technical_var.get().strip()
         if not activity or not findings:
             self._log("⚠  Please fill in both Activity Report and Findings Report paths.", "WARN")
             return
+        if not technical:
+            self._log("⚠  Please fill in Technical Report path to run Informational with Automated Testing.", "WARN")
+            return
         self._log("── Automated Testing Activity ──", "HEADER")
         self._log(f"Activity : {activity}", "INFO")
+        self._log(f"Technical: {technical}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
         prompt = ctk.CTkInputDialog(text = "Enter the page range number of the Activity Log under Activity Report: ", title = "Activity Log")
@@ -372,8 +377,9 @@ class App(ctk.CTk):
             buf = self._capture_stdout()
             try:
                 automated_testing_activity(activity, findings, page_range)
+                Informational(technical, findings)
                 self._restore_stdout(buf)
-                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+                self.after(0, lambda: self._log("✅ Complete. Automated Testing + Informational output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
                 self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
@@ -583,20 +589,20 @@ class App(ctk.CTk):
 
     def _run_Informational(self):
         technical = self.technical_var.get().strip()
-        #findings = self.findings_var.get().strip()
-        if (not technical): #or not findings):
-            self._log("⚠  Please fill in Technical Report path.", "WARN")
+        findings = self.findings_var.get().strip()
+        if not technical or not findings:
+            self._log("⚠  Please fill in both Technical Report and Findings Report paths.", "WARN")
             return
         self._log("── Informational ──", "HEADER")
         self._log(f"Technical: {technical}", "INFO")
-        #self._log(f"Findings : {findings}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
         def worker():
             buf = self._capture_stdout()
             try:
-                Informational(technical)
+                Informational(technical, findings)
                 self._restore_stdout(buf)
-                #self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
                 self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))

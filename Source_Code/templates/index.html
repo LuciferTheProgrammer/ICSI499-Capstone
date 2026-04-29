@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Report Automation Tool</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { mono: ['"Cascadia Code"', '"Fira Code"', 'monospace'] }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    #log { font-family: 'Cascadia Code', 'Fira Code', monospace; }
+    .log-ok     { color: #4ade80; }
+    .log-warn   { color: #f87171; }
+    .log-info   { color: #60a5fa; }
+    .log-header { color: #c084fc; font-weight: bold; }
+    .log-plain  { color: #d1d5db; }
+    /* scrollbar */
+    #log::-webkit-scrollbar { width: 6px; }
+    #log::-webkit-scrollbar-track { background: transparent; }
+    #log::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+    .btn { transition: opacity .15s, background-color .15s; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    input[type=text] { min-width: 0; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+
+  <!-- ── Top bar ──────────────────────────────────────────────────────────── -->
+  <header class="bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6 py-3 shrink-0">
+    <h1 class="text-lg font-bold tracking-tight">Report Automation Tool</h1>
+    <div class="flex items-center gap-3">
+      <span id="status-badge"
+        class="text-xs px-3 py-1 rounded-full bg-gray-700 text-gray-300">
+        Ready
+      </span>
+      <button id="theme-btn" onclick="toggleTheme()"
+        class="btn text-sm px-4 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-200">
+        ☀ Light Mode
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main ─────────────────────────────────────────────────────────────── -->
+  <main class="flex-1 flex flex-col gap-4 p-5 max-w-screen-xl w-full mx-auto">
+
+    <!-- ── File paths ──────────────────────────────────────────────────────── -->
+    <section class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Report Files</h2>
+      <div class="grid gap-y-2" style="grid-template-columns: max-content 1fr;">
+
+        <label class="text-sm text-gray-300 pr-4 flex items-center">Activity Report (PDF):</label>
+        <input id="path-activity" type="text"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-full" />
+
+        <label class="text-sm text-gray-300 pr-4 flex items-center">Findings Report (DOCX):</label>
+        <input id="path-findings" type="text"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-full" />
+
+        <label class="text-sm text-gray-300 pr-4 flex items-center">Technical Report (PDF):</label>
+        <input id="path-technical" type="text"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-full" />
+
+        <label class="text-sm text-gray-300 pr-4 flex items-center">Executive Report (PDF):</label>
+        <input id="path-executive" type="text"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-full" />
+
+        <label class="text-sm text-gray-300 pr-4 flex items-center">Findings Details &amp; Recommendation (XLSX):</label>
+        <input id="path-recommendation" type="text"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-full" />
+
+      </div>
+    </section>
+
+    <!-- ── Extra parameters (for actions that need prompts) ────────────────── -->
+    <section class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Action Parameters</h2>
+      <div class="flex flex-wrap gap-6">
+
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">Activity Log Page Range
+            <span class="text-gray-600 ml-1">(Automated Testing)</span>
+          </label>
+          <input id="param-page-range" type="text" placeholder="e.g. 3-5"
+            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-40" />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">Assessment Page Number
+            <span class="text-gray-600 ml-1">(Assessment Results)</span>
+          </label>
+          <input id="param-page-number" type="text" placeholder="e.g. 4"
+            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-40" />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">Customer Name
+            <span class="text-gray-600 ml-1">(Exploitation)</span>
+          </label>
+          <input id="param-customer" type="text" placeholder="e.g. Acme Corp"
+            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-52" />
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Action buttons ──────────────────────────────────────────────────── -->
+    <section class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Actions</h2>
+
+      <div class="flex flex-wrap gap-2">
+        <!-- Row 1 -->
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('automated_testing')">▶ Run Automated Testing</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('assessment_results')">▶ Run Assessment Results</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('recommendations')">▶ Run Recommendation</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('appendix')">▶ Run Appendix</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('findings_details')">▶ Run Findings Details</button>
+        <!-- Row 2 -->
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('logistics')">▶ Run Logistics</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('ip_address')">▶ Run IP Address</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('host_discovery')">▶ Run Host Discovery</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('exploitation')">▶ Run Exploitation</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('informational')">▶ Run Informational</button>
+        <!-- Row 3 -->
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+          onclick="runAction('findings_summary')">▶ Run Findings Summary</button>
+        <button class="btn action-btn text-sm font-semibold px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 text-white"
+          onclick="runAction('count_vulnerabilities')">🔍 Count Vulnerabilities</button>
+        <button class="btn text-sm font-semibold px-4 py-2 rounded-lg border border-gray-600 hover:bg-gray-800 text-gray-300"
+          onclick="clearLog()">✕ Clear Log</button>
+      </div>
+    </section>
+
+    <!-- ── Output log ───────────────────────────────────────────────────────── -->
+    <section class="bg-gray-900 rounded-xl border border-gray-800 flex flex-col flex-1 min-h-64">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Output Log</h2>
+        <span id="ts" class="text-xs text-gray-600"></span>
+      </div>
+      <div id="log"
+        class="flex-1 overflow-y-auto px-4 py-3 text-xs leading-relaxed bg-gray-950 rounded-b-xl"
+        style="min-height: 260px;">
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── JavaScript ────────────────────────────────────────────────────────── -->
+  <script>
+    let evtSource = null;
+    let isBusy = false;
+
+    // ── Load default paths from server ───────────────────────────────────────
+    fetch('/api/config').then(r => r.json()).then(cfg => {
+      document.getElementById('path-activity').value       = cfg.activity       || '';
+      document.getElementById('path-findings').value       = cfg.findings       || '';
+      document.getElementById('path-technical').value      = cfg.technical      || '';
+      document.getElementById('path-executive').value      = cfg.executive      || '';
+      document.getElementById('path-recommendation').value = cfg.recommendation || '';
+    });
+
+    // ── SSE stream ────────────────────────────────────────────────────────────
+    function connectStream() {
+      if (evtSource) { evtSource.close(); }
+      evtSource = new EventSource('/stream');
+      evtSource.onmessage = function(e) {
+        const raw = JSON.parse(e.data);
+        if (raw === '__PING__') return;
+        if (raw === '__DONE__') {
+          setBusy(false);
+          return;
+        }
+        if (raw === '__OK__') {
+          appendLog('✅ Task complete.', 'ok');
+          return;
+        }
+        appendLog(raw);
+      };
+      evtSource.onerror = function() {
+        // Reconnect after a short delay
+        setTimeout(connectStream, 3000);
+      };
+    }
+
+    connectStream();
+
+    // ── Log helpers ───────────────────────────────────────────────────────────
+    function appendLog(text, forceClass) {
+      const logEl = document.getElementById('log');
+      const div = document.createElement('div');
+      const ts = new Date().toLocaleTimeString('en-US', {hour12: false});
+
+      let cls = forceClass || classifyLine(text);
+      div.className = 'log-' + cls;
+
+      const tsSpan = document.createElement('span');
+      tsSpan.className = 'log-info opacity-60';
+      tsSpan.textContent = `[${ts}] `;
+
+      const msgSpan = document.createElement('span');
+      msgSpan.textContent = text;
+
+      div.appendChild(tsSpan);
+      div.appendChild(msgSpan);
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+
+      document.getElementById('ts').textContent = ts;
+    }
+
+    function classifyLine(text) {
+      if (text.includes('✅') || text.startsWith('✓')) return 'ok';
+      if (text.includes('❌') || text.includes('⚠') || text.toLowerCase().includes('error')) return 'warn';
+      if (text.startsWith('──') || text.startsWith('📋') || text.startsWith('🔧')) return 'header';
+      if (text.startsWith('  ') || text.startsWith('Page') || text.startsWith('📊') || text.startsWith('📄')) return 'plain';
+      return 'plain';
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+    }
+
+    // ── Busy state ────────────────────────────────────────────────────────────
+    function setBusy(busy) {
+      isBusy = busy;
+      document.querySelectorAll('.action-btn').forEach(b => b.disabled = busy);
+      const badge = document.getElementById('status-badge');
+      if (busy) {
+        badge.textContent = 'Running…';
+        badge.className = 'text-xs px-3 py-1 rounded-full bg-yellow-700 text-yellow-200 animate-pulse';
+      } else {
+        badge.textContent = 'Ready';
+        badge.className = 'text-xs px-3 py-1 rounded-full bg-gray-700 text-gray-300';
+      }
+    }
+
+    // ── Get paths + params ────────────────────────────────────────────────────
+    function getPaths() {
+      return {
+        activity:       document.getElementById('path-activity').value.trim(),
+        findings:       document.getElementById('path-findings').value.trim(),
+        technical:      document.getElementById('path-technical').value.trim(),
+        executive:      document.getElementById('path-executive').value.trim(),
+        recommendation: document.getElementById('path-recommendation').value.trim(),
+      };
+    }
+
+    // ── Run action ────────────────────────────────────────────────────────────
+    async function runAction(action) {
+      if (isBusy) {
+        appendLog('⚠ A task is already running. Please wait.', 'warn');
+        return;
+      }
+
+      const paths = getPaths();
+      const extra = {
+        page_range:  document.getElementById('param-page-range').value.trim(),
+        page_number: document.getElementById('param-page-number').value.trim(),
+        customer:    document.getElementById('param-customer').value.trim(),
+      };
+
+      // Client-side validation for required extras
+      if (action === 'automated_testing' && !extra.page_range) {
+        appendLog('⚠ Please fill in "Activity Log Page Range" before running Automated Testing.', 'warn');
+        return;
+      }
+      if (action === 'assessment_results' && !extra.page_number) {
+        appendLog('⚠ Please fill in "Assessment Page Number" before running Assessment Results.', 'warn');
+        return;
+      }
+      if (action === 'exploitation' && !extra.customer) {
+        appendLog('⚠ Please fill in "Customer Name" before running Exploitation.', 'warn');
+        return;
+      }
+
+      const labels = {
+        automated_testing:   '── Automated Testing Activity ──',
+        assessment_results:  '── Assessment Results Summary ──',
+        recommendations:     '── Recommendations ──',
+        appendix:            '── Appendix ──',
+        findings_details:    '── Findings Details ──',
+        logistics:           '── Logistics ──',
+        ip_address:          '── IP Address ──',
+        host_discovery:      '── Host Discovery ──',
+        exploitation:        '── Exploitation ──',
+        informational:       '── Informational ──',
+        findings_summary:    '── Findings Summary ──',
+        count_vulnerabilities: '── Vulnerability Count ──',
+      };
+      appendLog(labels[action] || `── ${action} ──`, 'header');
+
+      setBusy(true);
+
+      try {
+        const res = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, paths, extra }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          appendLog('⚠ ' + (data.error || 'Unknown error'), 'warn');
+          setBusy(false);
+        }
+      } catch (err) {
+        appendLog('❌ Network error: ' + err.message, 'warn');
+        setBusy(false);
+      }
+    }
+
+    // ── Theme toggle ──────────────────────────────────────────────────────────
+    function toggleTheme() {
+      const html = document.documentElement;
+      const btn  = document.getElementById('theme-btn');
+      if (html.classList.contains('dark')) {
+        html.classList.remove('dark');
+        html.style.colorScheme = 'light';
+        document.body.classList.replace('bg-gray-950', 'bg-gray-100');
+        document.body.classList.replace('text-gray-100', 'text-gray-900');
+        btn.textContent = '🌙 Dark Mode';
+      } else {
+        html.classList.add('dark');
+        html.style.colorScheme = 'dark';
+        document.body.classList.replace('bg-gray-100', 'bg-gray-950');
+        document.body.classList.replace('text-gray-900', 'text-gray-100');
+        btn.textContent = '☀ Light Mode';
+      }
+    }
+  </script>
+</body>
+</html>
