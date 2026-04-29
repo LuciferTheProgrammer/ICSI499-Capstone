@@ -583,20 +583,20 @@ class App(ctk.CTk):
 
     def _run_Informational(self):
         technical = self.technical_var.get().strip()
-        #findings = self.findings_var.get().strip()
-        if (not technical): #or not findings):
-            self._log("⚠  Please fill in Technical Report path.", "WARN")
+        findings = self.findings_var.get().strip()
+        if not technical or not findings:
+            self._log("⚠  Please fill in both Technical Report and Findings Report paths.", "WARN")
             return
         self._log("── Informational ──", "HEADER")
         self._log(f"Technical: {technical}", "INFO")
-        #self._log(f"Findings : {findings}", "INFO")
+        self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
         def worker():
             buf = self._capture_stdout()
             try:
-                Informational(technical)
+                Informational(technical, findings)
                 self._restore_stdout(buf)
-                #self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
                 self._restore_stdout(buf)
                 self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
