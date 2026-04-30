@@ -24,6 +24,7 @@ from AutomationPrototype import (
     Narrative_Exploitation,
     Informational,
     Findings_Summary,
+    customerName,
     DEFAULT_RECOMMENDATIONS_PATH,
     DEFAULT_EXECUTIVE_REPORT_PATH,
     DEFAULT_ACTIVITY_REPORT_PATH,
@@ -110,12 +111,22 @@ class App(ctk.CTk):
 
 
     # padding at bottom of card
-        ctk.CTkLabel(files_card, text="").grid(row=4, column=0)
+        ctk.CTkLabel(files_card, text="").grid(row=6, column=0)
 
         # ── Action buttons ────────────────────────────────────────────────────
         actions = ctk.CTkFrame(content, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        actions.grid_columnconfigure((0, 1), weight=0)
+        actions.grid(row=1, column=0, sticky="w", pady=(0, 10))
+        for column in range(5):
+            actions.grid_columnconfigure(column, weight=0, minsize=220)
+
+        self.run_customer_btn = ctk.CTkButton(
+            actions,
+            text="▶  Run Customer Name",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=210,
+            command=self._run_customer,
+        )
+        self.run_customer_btn.grid(row=0, column=0, padx=(0, 10), pady=(0, 0), sticky="w")
 
         self.run_testing_btn = ctk.CTkButton(
             actions,
@@ -124,7 +135,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_testing,
         )
-        self.run_testing_btn.grid(row=0, column=0, padx=(0, 10))
+        self.run_testing_btn.grid(row=0, column=1, padx=(0, 10), pady=(0, 0), sticky="w")
 
         self.run_assessments_btn = ctk.CTkButton(
             actions,
@@ -133,7 +144,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_assessments,
         )
-        self.run_assessments_btn.grid(row=0, column=1, padx=(0, 10))
+        self.run_assessments_btn.grid(row=0, column=2, padx=(0, 10), pady=(0, 0), sticky="w")
 
         self.run_recommendations_btn = ctk.CTkButton(
             actions,
@@ -142,7 +153,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_recommendations,
         )
-        self.run_recommendations_btn.grid(row=0, column=2, padx=(0, 10))
+        self.run_recommendations_btn.grid(row=0, column=3, padx=(0, 10), pady=(0, 0), sticky="w")
 
         self.run_appendix_btn = ctk.CTkButton(
             actions,
@@ -151,7 +162,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_appendix,
         )
-        self.run_appendix_btn.grid(row=0, column=3, padx=(0, 10))
+        self.run_appendix_btn.grid(row=0, column=4, padx=(0, 10), pady=(0, 0), sticky="w")
 
         self.run_findings_btn = ctk.CTkButton(
             actions,
@@ -160,7 +171,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_findings,
         )
-        self.run_findings_btn.grid(row=0, column=4, padx=(0, 10))
+        self.run_findings_btn.grid(row=1, column=0, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_logistics_btn = ctk.CTkButton(
             actions,
@@ -169,7 +180,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_logistics,
         )
-        self.run_logistics_btn.grid(row=1, column=0, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_logistics_btn.grid(row=1, column=1, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_IP_btn = ctk.CTkButton(
             actions,
@@ -178,7 +189,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_IP,
         )
-        self.run_IP_btn.grid(row=1, column=1, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_IP_btn.grid(row=1, column=2, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_HostD_btn = ctk.CTkButton(
             actions,
@@ -187,7 +198,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_HostD,
         )
-        self.run_HostD_btn.grid(row=1, column=2, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_HostD_btn.grid(row=1, column=3, padx=(0, 10), pady=(10,0), sticky="w")
 
 
         self.run_Exploitation_btn = ctk.CTkButton(
@@ -197,7 +208,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_Exploitation,
         )
-        self.run_Exploitation_btn.grid(row=1, column=3, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_Exploitation_btn.grid(row=1, column=4, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_Informational_btn = ctk.CTkButton(
             actions,
@@ -206,7 +217,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_Informational,
         )
-        self.run_Informational_btn.grid(row=1, column=4, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_Informational_btn.grid(row=2, column=0, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_Findings_Summary_btn = ctk.CTkButton(
             actions,
@@ -215,7 +226,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_Findings_Summary,
         )
-        self.run_Findings_Summary_btn.grid(row=2, column=0, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_Findings_Summary_btn.grid(row=2, column=1, padx=(0, 10), pady=(10,0), sticky="w")
 
 
         self.count_vuln_btn = ctk.CTkButton(
@@ -227,7 +238,7 @@ class App(ctk.CTk):
             hover_color="#15803d",
             command=self._run_severity,
         )
-        self.count_vuln_btn.grid(row=2, column=1, padx=(0, 10), pady=(10, 0), sticky="w")
+        self.count_vuln_btn.grid(row=2, column=2, padx=(0, 10), pady=(10, 0), sticky="w")
 
         self.clear_btn = ctk.CTkButton(
             actions,
@@ -239,7 +250,7 @@ class App(ctk.CTk):
             hover_color=("gray85", "gray25"),
             command=self._clear_log,
         )
-        self.clear_btn.grid(row=2, column=2, padx=(0, 10), pady=(10, 0), sticky="w")
+        self.clear_btn.grid(row=2, column=3, padx=(0, 10), pady=(10, 0), sticky="w")
 
         # ── Log output ────────────────────────────────────────────────────────
         log_card = ctk.CTkFrame(content)
@@ -337,6 +348,7 @@ class App(ctk.CTk):
     # ── Busy state ────────────────────────────────────────────────────────────
     def _set_busy(self, busy: bool):
         state = "disabled" if busy else "normal"
+        self.run_customer_btn.configure(state=state)
         self.run_testing_btn.configure(state=state)
         self.run_assessments_btn.configure(state=state)
         self.run_recommendations_btn.configure(state=state)
@@ -353,6 +365,40 @@ class App(ctk.CTk):
         self.status_var.set("Running…" if busy else "Done.")
 
     # ── Actions ───────────────────────────────────────────────────────────────
+    def _run_customer(self):
+        findings = self.findings_var.get().strip()
+        if not findings:
+            self._log("⚠  Please fill in Findings Report path.", "WARN")
+            return
+        self._log("── Customer Name ──", "HEADER")
+        self._log(f"Findings : {findings}", "INFO")
+        prompt = ctk.CTkInputDialog(text = "Customer Name: ", title = "Customer Name")
+        customer = prompt.get_input()
+        if not customer:
+            self._log("⚠ Please enter a valid customer name", "WARN")
+            return
+        customer = customer.strip()
+        prompt = ctk.CTkInputDialog(text = "Provide Year: ", title = "Year")
+        year = prompt.get_input()
+        if not year:
+            self._log("⚠ Please enter a valid year", "WARN")
+            return
+        year = year.strip()
+        self._set_busy(True)
+        def worker():
+            buf = self._capture_stdout()
+            try:
+                customerName(findings, customer, year)
+                self._restore_stdout(buf)
+                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
+            except Exception as exc:
+                self._restore_stdout(buf)
+                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
+            finally:
+                self.after(0, lambda: self._set_busy(False))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _run_testing(self):
         activity = self.activity_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -363,15 +409,10 @@ class App(ctk.CTk):
         self._log(f"Activity : {activity}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
-        prompt = ctk.CTkInputDialog(text = "Enter the page range number of the Activity Log under Activity Report: ", title = "Activity Log")
-        page_range = prompt.get_input()
-        if not page_range:
-            self._log("⚠ Page range is required for Activity Log", "WARN")
-            return
         def worker():
             buf = self._capture_stdout()
             try:
-                automated_testing_activity(activity, findings, page_range)
+                automated_testing_activity(activity, findings)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -392,15 +433,10 @@ class App(ctk.CTk):
         self._log(f"Executive : {executive}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
         self._set_busy(True)
-        prompt = ctk.CTkInputDialog(text = "Enter the page number of the Engagement Results Summary under Executive Report: ", title = "Assessment Results Summary")
-        page_number = prompt.get_input()
-        if not page_number:
-            self._log("⚠ Page number required for Assessment Results Summary", "WARN")
-            return
         def worker():
             buf = self._capture_stdout()
             try:
-                assessment_results(executive, findings, page_number)
+                assessment_results(executive, findings)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -561,13 +597,13 @@ class App(ctk.CTk):
             return
         self._log("── Exploitation ──", "HEADER")
         self._log(f"Findings : {findings}", "INFO")
-        self._set_busy(True)
         prompt = ctk.CTkInputDialog(text = "Customer Name: ", title = "Customer Name")
         customer = prompt.get_input()
         if not customer:
             self._log("⚠ Please enter a valid customer name", "WARN")
             return
         customer = customer.strip()
+        self._set_busy(True)
         def worker():
             buf = self._capture_stdout()
             try:
