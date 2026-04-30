@@ -1034,6 +1034,7 @@ def customerName(name: str, year: str, findings_report: str) -> None:
         if paragraph.text == "Penetration Testing":
             draft_text = doc.paragraphs[i-1].text
             if "(DRAFT) findings" in draft_text:
+                print(i)
                 name_slot = doc.paragraphs[i+1]
                 print("Found the customer name slot")
                 print(name_slot.text)
