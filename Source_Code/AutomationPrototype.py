@@ -78,7 +78,7 @@ def activity_log_page_range(activity_report: str) -> str:
     page_range = f"{start}-{last}"
     return page_range
 
-def automated_testing_activity(activity_report: str, findings_report: str) -> None:
+def automated_testing_activity(activity_report: str, findings_report: str, user_header: str) -> None:
     page_range = activity_log_page_range(activity_report)
     if page_range == "":
         print("❌ Could not find Activity Log in Activity Report")
@@ -97,12 +97,20 @@ def automated_testing_activity(activity_report: str, findings_report: str) -> No
     section = "AUTOMATED TESTING ACTIVITY"
     for i, paragraph in enumerate(doc_holder.paragraphs):
         if section.lower() in paragraph.text.lower():
-            for entry in reversed(activity_log):
-                container = doc_holder.paragraphs[i + 1].insert_paragraph_before()
+            position = doc_holder.paragraphs[i + 1]
+            if user_header.strip():
+                header = position.insert_paragraph_before()
+                header_run = header.add_run(user_header.strip())
+                header_run.font.name = "Corbel"
+                header_run.font.size = Pt(12)
+                header_run.font.color.rgb = RGBColor(242, 101, 34)
+            for entry in activity_log:
+                container = position.insert_paragraph_before()
                 container.style = "Activity Bullet"
                 execute  = container.add_run(entry)
                 execute.font.name = "Corbel"
                 execute.font.size = Pt(8.5)
+                execute.font.color.rgb = RGBColor(64,64,64)
             break
     doc_holder.save(findings_report)
     print("✅ Automated Testing Activity was successfully populated and saved")
@@ -386,24 +394,17 @@ def appendix(technical_report: str, findings_report: str) -> None:
     pdf_p.close()
     print(f"✅ Screenshot of Open Ports Table was a success.")
     doc = Document(findings_report)
-    idx_screenshot = None
     position = None
-    text_1 = "OPEN PORTS | EXTERNAL NETWORK TESTING"
-    text_2 = "SCREENSHOT OF OPEN PORTS TABLE"
+    text_1 = "OPEN PORTS |"
     for i, p in enumerate(doc.paragraphs):
         cur_data = p.text.upper()
         if text_1 in cur_data:
             position = i
-        if text_2 in cur_data:
-            idx_screenshot = i
             break
     if position is None:
         print(f"❌ {text_1} can't be found")
         return
-    if idx_screenshot is None:
-        print(f"❌ {text_2} can't be found")
-        return
-    data_container = doc.paragraphs[idx_screenshot]
+    data_container = doc.paragraphs[position]
     image_struc = add_new_paragraph(data_container)
     image = image_struc.add_run()
     image.add_picture(image_container, width=Inches(6.5))
@@ -448,6 +449,25 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 frames.append(VulnerabilityFrame(discoveredName=frame[0], rating=frame[2]))
                 print(f"vuln detected: {frame[2]}")
     return frames
+
+def delete_page_brk_before(p):
+    p.paragraph_format.page_break_before = False
+    marker = ".//w:br[@w:type='page']"
+    for brk in p._element.xpath(marker):
+        ancestor = brk.getparent()
+        if ancestor is not None:
+            ancestor.remove(brk)
+
+def delete_sec_break_from_prev(p):
+    prev = p._element.getprevious()
+    if prev is None:
+        return
+    marker = ".//w:sectPr"
+    previous_section = prev.xpath(marker)
+    for section in previous_section:
+        ancestor = section.getparent()
+        if ancestor is not None:
+            ancestor.remove(section)
 
 def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
     with Image.open(file_image) as image:
@@ -611,7 +631,27 @@ def bottom_trim(container, unit=8):
     res = pymupdf.Rect(container.x0, container.y0, container.x1, container.y1 - unit)
     return res
 
-def finding_details(technical_path: str, findings_report: str, details_path: str) -> None:
+def data_is_present(page, top, bottom,) -> bool:
+    target = []
+    discard = {"ORBITALFIRE", "PENETRATION", "TESTING"}
+    struc = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
+    content = page.get_text("words", clip=struc)
+    for entry in content:
+        data = str(entry[4]).strip()
+        if not data:
+            continue
+        if data.upper() in discard:
+            continue
+        if data.isdigit():
+            continue
+        target.append(data)
+    result = " ".join(target).strip()
+    length = len(result)
+    if length >= 5:
+        return True
+    return False
+
+def finding_details(technical_path: str, findings_report: str, details_path: str, customer_name: str) -> None:
     internal = pd.read_excel(details_path, sheet_name="Internal")
     external = pd.read_excel(details_path, sheet_name="External")
     dataframe = pd.concat([internal, external], ignore_index=True)
@@ -677,14 +717,14 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
     image_directory = "./Reports/Findings_Details"
     os.makedirs(image_directory, exist_ok=True)
     for i, find in enumerate(finds, start=1):
-        find["affected_nodes_table"] = None
-        find["evidence_table"] = None
+        find["affected_nodes_table"] = []
+        find["evidence_table"] = []
         starting = find["page"]
         length_pdf = len(pdf)
-        up_bound = min(starting + 4, length_pdf)
+        up_bound = min(starting + 10, length_pdf)
         for x in range(starting, up_bound):
             page = pdf[x]
-            if find["affected_nodes_table"] is None:
+            if not find["affected_nodes_table"]:
                 affected = page.search_for("Affected Nodes")
                 if not affected:
                     affected = page.search_for("AFFECTED NODES")
@@ -709,16 +749,49 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                         crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
                         crop = left_trim(crop, unit=12)
                         crop = bottom_trim(crop, unit=2)
-                        file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}.png")
+                        file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}_part1.png")
                         page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
-                        find["affected_nodes_table"] = file_path_affected
-            if find["evidence_table"] is None:
+                        find["affected_nodes_table"].append(file_path_affected)
+                        if not connections:
+                            to_stop = False
+                            counter_part = 2
+                            follow_up = x + 1
+                            for next_num in range(follow_up, up_bound):
+                                ending_pts = []
+                                next = pdf[next_num]
+                                continue_top = 36
+                                continue_bottom = next.rect.height - 36
+                                stopper = ["Recommendation", "RECOMMENDATION",
+                                           "Reproduction Steps", "REPRODUCTION STEPS", "References", "REFERENCES",
+                                           "Evidence", "EVIDENCE"] + severities
+                                for stop in stopper:
+                                    for b in next.search_for(stop):
+                                        if continue_top < b.y0:
+                                            reduced_space = b.y0 - 4
+                                            ending_pts.append(reduced_space)
+                                if ending_pts:
+                                    to_stop = True
+                                    continue_bottom = min(ending_pts)
+                                if continue_bottom > continue_top:
+                                    continue_crop = construct_portion(next, continue_top, continue_bottom, table_type="table")
+                                    continue_section = pymupdf.Rect(36, continue_top, next.rect.width - 36, continue_bottom)
+                                    continue_crop = enlarge_pic(continue_crop, continue_section, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
+                                    continue_crop = left_trim(continue_crop, unit=12)
+                                    continue_crop = bottom_trim(continue_crop, unit=2)
+                                    file_path_affected_continue = os.path.join(image_directory, f"Affected_Sample_{i}_part{counter_part}.png")
+                                    next.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=continue_crop, alpha=False).save(file_path_affected_continue)
+                                    find["affected_nodes_table"].append(file_path_affected_continue)
+                                    counter_part += 1
+                                if to_stop:
+                                    break
+            if not find["evidence_table"]:
                 evidence = page.search_for("Evidence")
                 if not evidence:
                     evidence = page.search_for("EVIDENCE")
                 if evidence:
                     evidence_box = max(evidence, key=lambda s: s.y0)
                     top = evidence_box.y1 + 3
+                    bottom = page.rect.height - 36
                     connections = []
                     FLAG = severities + ["References", "REFERENCES", "Recommendation", "RECOMMENDATION",
                                          "Reproduction Steps", "REPRODUCTION STEPS", "Appendix", "APPENDIX"]
@@ -735,9 +808,45 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                         section_cont = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
                         crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=6, y_padding_top=4, y_padding_bottom=6)
                         crop = bottom_trim(crop, unit=10)
-                        file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}.png")
+                        file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}_part1.png")
                         page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
-                        find["evidence_table"] = file_path_evidence
+                        find["evidence_table"].append(file_path_evidence)
+                        if not connections:
+                            to_stop = False
+                            counter_part = 2
+                            follow_up = x + 1
+                            for next_num in range(follow_up, up_bound):
+                                ending_pts = []
+                                next = pdf[next_num]
+                                continue_top = 36
+                                continue_bottom = next.rect.height - 36
+                                stopper = severities + ["References", "REFERENCES", "Recommendation", "RECOMMENDATION",
+                                                        "Reproduction Steps", "REPRODUCTION STEPS", "Appendix", "APPENDIX"]
+                                for stop in stopper:
+                                    for b in next.search_for(stop):
+                                        if continue_top < b.y0:
+                                            reduced_space = b.y0 - 4
+                                            ending_pts.append(reduced_space)
+                                if ending_pts:
+                                    to_stop = True
+                                    continue_bottom = min(ending_pts)
+                                is_present = data_is_present(next, continue_top, continue_bottom)
+                                if not is_present:
+                                    if to_stop:
+                                        break
+                                    continue
+                                if continue_bottom > continue_top:
+                                    continue_crop = construct_portion(next, continue_top, continue_bottom, table_type="text")
+                                    continue_section = pymupdf.Rect(36, continue_top, next.rect.width - 36, continue_bottom)
+                                    continue_crop = enlarge_pic(continue_crop, continue_section, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
+                                    continue_crop = left_trim(continue_crop, unit=12)
+                                    continue_crop = bottom_trim(continue_crop, unit=2)
+                                    file_path_evidence_continue = os.path.join(image_directory, f"Evidence_Sample_{i}_part{counter_part}.png")
+                                    next.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=continue_crop, alpha=False).save(file_path_evidence_continue)
+                                    find["evidence_table"].append(file_path_evidence_continue)
+                                    counter_part += 1
+                                if to_stop:
+                                    break
     pdf.close()
     doc = Document(findings_report)
     STATUS = {"Critical": [], "High": [], "Medium": [], "Low": []}
@@ -748,8 +857,6 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
     collector_status = ["Critical", "High", "Medium", "Low"]
     for entry in collector_status:
         cur_finds = STATUS[entry]
-        if not cur_finds:
-            continue
         position = None
         move_index = None
         for i, paragraph in enumerate(doc.paragraphs):
@@ -760,6 +867,20 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
         if position is None:
             print(f"Severity header {entry} can't found")
             continue
+        if not cur_finds:
+            continue
+        current_index = collector_status.index(entry)
+        prev_has_info = False
+        for prev in collector_status[:current_index]:
+            info_exist = len(STATUS[prev])
+            if info_exist > 0:
+                prev_has_info = True
+                break
+        if prev_has_info:
+            position.paragraph_format.page_break_before = True
+        else:
+            delete_page_brk_before(position)
+            delete_sec_break_from_prev(position)
         modified_index = move_index + 1
         length_doc_p = len(doc.paragraphs)
         upper = min(move_index + 5, length_doc_p)
@@ -787,13 +908,16 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
             run_para_hyphen.font.color.rgb = RGBColor(64, 64, 64)
             run_para_hyphen.font.name = "Corbel"
             run_para_hyphen.font.size = Pt(12)
-            run_para2 = para1.add_run(i["description"])
+            description_modified = i["description"]
+            if customer_name.strip():
+                description_modified = description_modified.replace("[CUSTOMER NAME]", customer_name.strip())
+            run_para2 = para1.add_run(description_modified)
             run_para2.font.color.rgb = RGBColor(64, 64, 64)
             run_para2.font.name = "Corbel"
             run_para2.font.size = Pt(12)
             insert_after = para1
             counting += 1
-            if i["affected_nodes_table"] and os.path.exists(i["affected_nodes_table"]):
+            if i["affected_nodes_table"]:
                 para_an = add_new_paragraph(insert_after)
                 run_para_an = para_an.add_run("Affected Nodes:")
                 run_para_an.font.italic = True
@@ -801,9 +925,11 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                 run_para_an.font.name = "Corbel"
                 run_para_an.font.size = Pt(12)
                 insert_after = para_an
-                para2 = add_new_paragraph(insert_after)
-                resize_image(para2, i["affected_nodes_table"], max_w=6.3, max_h=2.8, desired_ra=3.8)
-                insert_after = para2
+                for affected_image in i["affected_nodes_table"]:
+                    if os.path.exists(affected_image):
+                        para2 = add_new_paragraph(insert_after)
+                        resize_image(para2, affected_image, max_w=6.3, max_h=2.8, desired_ra=3.8)
+                        insert_after = para2
             para3 = add_new_paragraph(insert_after)
             run_para3 = para3.add_run("Evidence:")
             run_para3.italic = True
@@ -811,95 +937,14 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
             run_para3.font.name = "Corbel"
             run_para3.font.size = Pt(12)
             insert_after = para3
-            if i["evidence_table"] and os.path.exists(i["evidence_table"]):
-                para4 = add_new_paragraph(insert_after)
-                resize_image(para4, i["evidence_table"], max_w=6.3, max_h=3.8, desired_ra=3.8)
-                insert_after = para4
+            if i["evidence_table"]:
+                for evidence_image in i["evidence_table"]:
+                    if os.path.exists(evidence_image):
+                        para4 = add_new_paragraph(insert_after)
+                        resize_image(para4, evidence_image, max_w=6.3, max_h=3.8, desired_ra=3.8)
+                        insert_after = para4
     doc.save(findings_report)
     print(f"✅ Findings Details was successfully populated and saved")
-
-def Logistics(technical_path: str, findings_report: str) -> None:
-    MITRE_r = []
-    escalation = None
-    with pdfplumber.open(technical_path) as pdf:
-        MITRE_sec = False
-        contact_sect = False
-        for p in pdf.pages:
-            data = p.extract_text()
-            if not data:
-                continue
-            lines = data.splitlines()
-            for entry in lines:
-                split_entry = entry.split()
-                clean_entry = " ".join(split_entry).strip()
-                if clean_entry == "":
-                    continue
-                contact_flag = "Primary Point of Contact"
-                if contact_flag in clean_entry:
-                    contact_sect = True
-                    continue
-                if contact_sect and clean_entry.startswith("Name:"):
-                    escalation = clean_entry.replace("Name:", "", 1).strip()
-                    contact_sect = False
-                MITRE_flag = "MITRE ATT&CK Mappings"
-                if MITRE_flag in clean_entry:
-                    MITRE_sec = True
-                    continue
-                if MITRE_sec and "Reputational Threat Findings" in clean_entry:
-                    MITRE_sec = False
-                if MITRE_sec:
-                    if clean_entry.startswith("Time Name Tactic TTPID"):
-                        continue
-                    if re.search(r'(Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+'
-                                r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+'
-                                r'\d{1,2},\s+\d{4}\s+@', clean_entry):
-                        MITRE_r.append(clean_entry)
-        if not MITRE_r:
-            print("❌ Could not find the correct rows on MITRE ATT&CK Mappings from Technical Report")
-            return
-        if not escalation:
-            print("❌ Could not find the correct contact for point of escalation from Technical Report")
-            return
-        first = MITRE_r[0]
-        last = MITRE_r[-1]
-        match_first = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', first)
-        match_last = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', last)
-        if not match_first or not match_last:
-            print("❌ Could not extract start and end dates from Technical Report")
-            return
-        start_abv = match_first.group(0)
-        end_abv = match_last.group(0)
-        mapping = {"Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April", "May": "May", "Jun": "June", "Jul": "July",
-                   "Aug": "August", "Sep": "September", "Oct": "October", "Nov": "November", "Dec": "December"}
-        starting = start_abv.replace(",", "").split()
-        ending = end_abv.replace(",", "").split()
-        date_start = f"{mapping[starting[0]]} {starting[1]}, {starting[2]}"
-        date_end = f"{mapping[ending[0]]} {ending[1]}, {ending[2]}"
-        doc = Document(findings_report)
-        logistic_index = None
-        struc = "The Penetration Testing was conducted according to the following:"
-        for i, paragraph in enumerate(doc.paragraphs):
-            if struc in paragraph.text:
-                logistic_index = i
-                break
-        if logistic_index is None:
-            print("❌ Could not find correct Logistics section to populate in Findings Report")
-            return
-        bullets = [(doc.paragraphs[logistic_index + 1], "Start Date: ", date_start), (doc.paragraphs[logistic_index + 2], "End Date: ", date_end), (doc.paragraphs[logistic_index + 3], "Escalation Contact: ", escalation)]
-        for y, val, s in bullets:
-            y.text = val
-            if y.runs:
-                y.runs[0].font.name = "Corbel"
-                y.runs[0].font.color.rgb = RGBColor(64, 64, 64)
-                y.runs[0].font.size = Pt(12)
-            para = y.add_run(s)
-            para.font.name = "Corbel"
-            para.font.size = Pt(12)
-            para.font.color.rgb = RGBColor(242, 101, 34)
-            y.paragraph_format.space_before = Pt(0)
-            y.paragraph_format.space_after = Pt(0)
-    doc.save(findings_report)
-    print("✅ Logistics was successfully populated and saved")
 
 def IPAddress(technical: str, findings_report_path: str) -> None:
     IP_Address_sec = False
@@ -1784,7 +1829,7 @@ def customer_name()-> str:
     return name
 
 def customerName(findings_report: str, name: str, year: str) -> None:
-    #name = customer_name()
+    MARKER = False
     if name is None:
         print("❌ No customer name was provided")
         return
@@ -1794,21 +1839,22 @@ def customerName(findings_report: str, name: str, year: str) -> None:
     doc = Document(findings_report)
     for i, paragraph in enumerate(doc.paragraphs):
         if paragraph.text == "Penetration Testing":
+            MARKER = True
             name_slot = doc.paragraphs[i+1]
-            print("✅ Found the customer name slot in title page")
-            print(name_slot.text)
             name_slot.clear()
             name_run = name_slot.add_run(name + "\n")
             year_run = name_slot.add_run(year)
             name_run.font.name = "Corbel"
             name_run.font.size = Pt(16)
-            name_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
+            name_run.font.color.rgb = RGBColor(242, 101, 34)
             year_run.font.name = "Corbel"
             year_run.font.size = Pt(16)
-            year_run.font.color.rgb = RGBColor(255, 102, 50)    # ff6632
-    print("✅ Customer Name in title page was successfully populated and saved")
+            year_run.font.color.rgb = RGBColor(242, 101, 34)
+    if MARKER:
+        print("✅ Customer Name and year in title page was successfully populated and saved")
+    else:
+        print("❌ Could not populate Customer Name and year in title page")
     doc.save(findings_report)
-
 
 def main() -> None:
     print("Automation in process...")

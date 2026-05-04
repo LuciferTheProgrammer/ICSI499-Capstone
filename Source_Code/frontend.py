@@ -18,7 +18,6 @@ from AutomationPrototype import (
     recommendations,
     appendix,
     finding_details,
-    Logistics,
     IPAddress,
     Host_Discovery,
     Narrative_Exploitation,
@@ -173,15 +172,6 @@ class App(ctk.CTk):
         )
         self.run_findings_btn.grid(row=1, column=0, padx=(0, 10), pady=(10,0), sticky="w")
 
-        self.run_logistics_btn = ctk.CTkButton(
-            actions,
-            text="▶  Run Logistics",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            width=210,
-            command=self._run_logistics,
-        )
-        self.run_logistics_btn.grid(row=1, column=1, padx=(0, 10), pady=(10,0), sticky="w")
-
         self.run_IP_btn = ctk.CTkButton(
             actions,
             text="▶  Run IP Address",
@@ -189,7 +179,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_IP,
         )
-        self.run_IP_btn.grid(row=1, column=2, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_IP_btn.grid(row=1, column=1, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_HostD_btn = ctk.CTkButton(
             actions,
@@ -198,7 +188,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_HostD,
         )
-        self.run_HostD_btn.grid(row=1, column=3, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_HostD_btn.grid(row=1, column=2, padx=(0, 10), pady=(10,0), sticky="w")
 
 
         self.run_Exploitation_btn = ctk.CTkButton(
@@ -208,7 +198,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_Exploitation,
         )
-        self.run_Exploitation_btn.grid(row=1, column=4, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_Exploitation_btn.grid(row=1, column=3, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_Informational_btn = ctk.CTkButton(
             actions,
@@ -217,7 +207,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_Informational,
         )
-        self.run_Informational_btn.grid(row=2, column=0, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_Informational_btn.grid(row=1, column=4, padx=(0, 10), pady=(10,0), sticky="w")
 
         self.run_Findings_Summary_btn = ctk.CTkButton(
             actions,
@@ -226,7 +216,7 @@ class App(ctk.CTk):
             width=210,
             command=self._run_Findings_Summary,
         )
-        self.run_Findings_Summary_btn.grid(row=2, column=1, padx=(0, 10), pady=(10,0), sticky="w")
+        self.run_Findings_Summary_btn.grid(row=2, column=0, padx=(0, 10), pady=(10,0), sticky="w")
 
 
         self.count_vuln_btn = ctk.CTkButton(
@@ -238,7 +228,7 @@ class App(ctk.CTk):
             hover_color="#15803d",
             command=self._run_severity,
         )
-        self.count_vuln_btn.grid(row=2, column=2, padx=(0, 10), pady=(10, 0), sticky="w")
+        self.count_vuln_btn.grid(row=2, column=1, padx=(0, 10), pady=(10, 0), sticky="w")
 
         self.clear_btn = ctk.CTkButton(
             actions,
@@ -250,7 +240,7 @@ class App(ctk.CTk):
             hover_color=("gray85", "gray25"),
             command=self._clear_log,
         )
-        self.clear_btn.grid(row=2, column=3, padx=(0, 10), pady=(10, 0), sticky="w")
+        self.clear_btn.grid(row=2, column=2, padx=(0, 10), pady=(10, 0), sticky="w")
 
         # ── Log output ────────────────────────────────────────────────────────
         log_card = ctk.CTkFrame(content)
@@ -354,7 +344,6 @@ class App(ctk.CTk):
         self.run_recommendations_btn.configure(state=state)
         self.run_appendix_btn.configure(state=state)
         self.run_findings_btn.configure(state=state)
-        self.run_logistics_btn.configure(state=state)
         self.run_IP_btn.configure(state=state)
         self.run_HostD_btn.configure(state=state)
         self.run_Exploitation_btn.configure(state=state)
@@ -408,11 +397,17 @@ class App(ctk.CTk):
         self._log("── Automated Testing Activity ──", "HEADER")
         self._log(f"Activity : {activity}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
+        prompt = ctk.CTkInputDialog(text = "Environment Setting: ", title = "Environment Setting")
+        envir = prompt.get_input()
+        if not envir:
+            self._log("⚠ Please enter a valid environment setting", "WARN")
+            return
+        envir = envir.strip()
         self._set_busy(True)
         def worker():
             buf = self._capture_stdout()
             try:
-                automated_testing_activity(activity, findings)
+                automated_testing_activity(activity, findings, envir)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
@@ -507,34 +502,17 @@ class App(ctk.CTk):
         self._log(f"Findings Details: {find_info}", "INFO")
         self._log(f"Technical: {technical}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
-        self._set_busy(True)
-        def worker():
-            buf = self._capture_stdout()
-            try:
-                finding_details(technical, findings, find_info)
-                self._restore_stdout(buf)
-                self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
-            except Exception as exc:
-                self._restore_stdout(buf)
-                self.after(0, lambda err=str(exc): self._log(f"❌ Error: {err}", "WARN"))
-            finally:
-                self.after(0, lambda: self._set_busy(False))
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _run_logistics(self):
-        technical = self.technical_var.get().strip()
-        findings = self.findings_var.get().strip()
-        if not technical or not findings:
-            self._log("⚠  Please fill in both Technical Report and Findings Report paths.", "WARN")
+        prompt = ctk.CTkInputDialog(text = "Customer Name: ", title = "Customer Name")
+        customer = prompt.get_input()
+        if not customer:
+            self._log("⚠ Please enter a valid customer name", "WARN")
             return
-        self._log("── Logistics ──", "HEADER")
-        self._log(f"Technical: {technical}", "INFO")
-        self._log(f"Findings : {findings}", "INFO")
+        customer = customer.strip()
         self._set_busy(True)
         def worker():
             buf = self._capture_stdout()
             try:
-                Logistics(technical, findings)
+                finding_details(technical, findings, find_info, customer)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:
