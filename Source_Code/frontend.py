@@ -604,11 +604,17 @@ class App(ctk.CTk):
         self._log("── Informational ──", "HEADER")
         self._log(f"Technical: {technical}", "INFO")
         self._log(f"Findings : {findings}", "INFO")
+        prompt = ctk.CTkInputDialog(text = "Customer Name: ", title = "Customer Name")
+        customer = prompt.get_input()
+        if not customer:
+            self._log("⚠ Please enter a valid customer name", "WARN")
+            return
+        customer = customer.strip()
         self._set_busy(True)
         def worker():
             buf = self._capture_stdout()
             try:
-                Informational(technical, findings)
+                Informational(technical, findings, customer)
                 self._restore_stdout(buf)
                 self.after(0, lambda: self._log("✅ Complete. Output saved to: " + findings, "OK"))
             except Exception as exc:

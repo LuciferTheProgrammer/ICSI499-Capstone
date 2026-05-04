@@ -355,6 +355,7 @@ def add_new_paragraph(paragraph):
 
 # To populate the Appendix section of the Findings Report.
 def appendix(technical_report: str, findings_report: str) -> None:
+    target_index = None
     title = "Appendix B: Host Discovery (Opened Ports)"
     image_container = "./Reports/Appendix/OPEN_PORTS.PNG"
     os.makedirs("./Reports/Appendix", exist_ok=True)
@@ -367,6 +368,7 @@ def appendix(technical_report: str, findings_report: str) -> None:
         text_data = page.get_text()
         if title in text_data:
             target = page
+            target_index = i
             target_table = page.find_tables()
             if target_table and target_table.tables:
                 max_table = max(target_table.tables, key = lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
@@ -391,6 +393,16 @@ def appendix(technical_report: str, findings_report: str) -> None:
     image_zoomed = pymupdf.Matrix(2.0, 2.0)
     pixels = target.get_pixmap(matrix=image_zoomed, clip=table_container ,alpha=False)
     pixels.save(image_container)
+    image_parts = [image_container]
+    if target_index is not None and len_pdf_p > (target_index + 1):
+        incremented = target_index + 1
+        next_p = pdf_p[incremented]
+        extension = pymupdf.Rect(36, 36, next_p.rect.width - 36, next_p.rect.height - 36)
+        status_cond = data_is_present(next_p, 36, next_p.rect.height - 36)
+        if status_cond:
+            next_part_path = "./Reports/Appendix/OPEN_PORTS_PART2.PNG"
+            next_p.get_pixmap(matrix=image_zoomed, clip=extension, alpha=False).save(next_part_path)
+            image_parts.append(next_part_path)
     pdf_p.close()
     print(f"✅ Screenshot of Open Ports Table was a success.")
     doc = Document(findings_report)
@@ -405,11 +417,14 @@ def appendix(technical_report: str, findings_report: str) -> None:
         print(f"❌ {text_1} can't be found")
         return
     data_container = doc.paragraphs[position]
-    image_struc = add_new_paragraph(data_container)
-    image = image_struc.add_run()
-    image.add_picture(image_container, width=Inches(6.5))
-    image_struc.paragraph_format.space_before = Pt(0)
-    image_struc.paragraph_format.space_after = Pt(6)
+    after = data_container
+    for img_path in image_parts:
+        image_struc = add_new_paragraph(after)
+        image = image_struc.add_run()
+        image.add_picture(img_path, width=Inches(6.5))
+        image_struc.paragraph_format.space_before = Pt(0)
+        image_struc.paragraph_format.space_after = Pt(6)
+        after = image_struc
     print(f"✅ Open Ports Table was pasted over Findings Report successfully.")
     doc.save(findings_report)
     print("✅ Findings Report was successfully saved.")
@@ -1012,6 +1027,18 @@ def place_host_data(paragraph, temp: str, data: str) -> bool:
             return True
     return False
 
+def preserve_first_exec(p, placeholder: str, switch: str) -> bool:
+    content = ""
+    for i in p.runs:
+        content += i.text
+    if placeholder not in content:
+        return False
+    modified = content.replace(placeholder, switch)
+    if p.runs:
+        p.runs[0].text = modified
+        for entry in p.runs[1:]:
+            entry.text = ""
+    return True
 def is_singular_plural(value: str) -> bool:
     processed = value.strip().lower()
     if processed == "one" or processed == "1" or processed == "(1)":
@@ -1117,6 +1144,7 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
         return
     doc.save(findings_report_path)
     print("✅ Host Discovery was successfully populated and saved")
+
 
 def normalize_anchor_text(text: str) -> str:
     return " ".join(text.upper().split()).strip()
@@ -1243,6 +1271,31 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
 
     return image_para
 
+def insert_extended_image_parts(doc: Document, heading_text: str, image_paths: str):
+    if isinstance(image_paths, str):
+        image_paths = (image_paths,)
+    if not image_paths:
+        return None
+    para1 = insert_image_under_heading(doc, heading_text, image_paths[0])
+    if not para1:
+        return None
+    after = para1
+    for extended_img in image_paths[1:]:
+        if not extended_img or not os.path.exists(extended_img):
+            continue
+        extended_para = add_new_paragraph(after)
+        indent_after_insert(after, extended_para)
+        res = resize_image_modified(extended_para, extended_img, max_w=6.3, max_h=3.5, desired_ra=3.8)
+        if res:
+            extended_para.paragraph_format.space_before = Pt(6)
+            extended_para.paragraph_format.space_after = Pt(6)
+            after = extended_para
+        else:
+            ancestor = extended_para._element.getparent()
+            if ancestor is not None:
+                ancestor.remove(extended_para._element)
+    return para1
+
 def resize_image_modified(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> bool:
     if not os.path.exists(file_image):
         print(f"WARNING: Image file not found for insertion: {file_image}")
@@ -1268,63 +1321,73 @@ def resize_image_modified(p, file_image: str, max_w: float = 6.3, max_h: float =
         print(f"WARNING: Failed to insert image '{file_image}': {e}")
         return False
 
-def capture_dns_continuation_parts(pdf, start_page_index: int, second_table_rect: pymupdf.Rect, output_path: str, image_zoomed: pymupdf.Matrix) -> tuple:
-    """
-    Captures a DNS table that may be split across multiple pages.
-    HARDCODED: Always captures the next page as continuation.
-    Returns tuple of (first_image_path, second_image_path) or (first_image_path, None) if no continuation.
-    """
-    #print(f"  📊 Capturing DNS table starting on page {start_page_index + 1}...")
+def compute_columns(p, image: pymupdf.Rect):
+    counter = []
+    try:
+        collections = p.find_tables(clip=image)
+        if not collections or not collections.tables:
+            return None
+        struc = max(collections.tables, key = lambda s: (s.bbox[2] - s.bbox[0]) * (s.bbox[3] - s.bbox[1]))
+        entries = struc.extract()
+        for entry in entries:
+            if entry:
+                column_size = len(entry)
+                counter.append(column_size)
+        if not counter:
+            return None
+        max_count = max(counter)
+        return max_count
 
-    start_page = pdf[start_page_index]
+    except Exception:
+        return None
 
-    # Capture the first part of the DNS table
-    first_pixels = start_page.get_pixmap(matrix=image_zoomed, clip=second_table_rect, alpha=False)
-    first_pixels.save(output_path)
-
-    # Apply 25% bottom crop to remove any page footer/noise
-    with Image.open(output_path) as img:
-        width, height = img.size
-        trimmed_height = int(height * 0.75)
-        if trimmed_height > 0 and trimmed_height < height:
-            img.crop((0, 0, width, trimmed_height)).save(output_path)
-            #print(f"    ✂️  Cropped bottom 25% from first DNS capture")
-
-    # HARDCODED: Always capture the immediate next page as continuation
-    next_page_index = start_page_index + 1
-
-    if next_page_index >= len(pdf):
-        #print(f"    ℹ️  No next page available - DNS table on last page")
-        return (output_path, None)
-
-    #print(f"    📄 Capturing continuation from page {next_page_index + 1} (HARDCODED)...")
-
-    next_page = pdf[next_page_index]
-
-    # Start capture from top of page, minimal offset to avoid cutting off rows
-    # HARDCODED: Capture top portion of page 8 (table continuation area only)
-    continuation_top = 36
-    # Capture approximately top 2/3 of page to get full table without excessive whitespace
-    continuation_bottom = next_page.rect.height * 0.65
-    continuation_clip = pymupdf.Rect(36, continuation_top, next_page.rect.width - 36, continuation_bottom)
-    continuation_path = "./Reports/Informational/DNS-Record2.png"
-    next_page.get_pixmap(matrix=image_zoomed, clip=continuation_clip, alpha=False).save(continuation_path)
-
-    # Apply cropping to remove ALL surrounding whitespace (match other tables)
-    with Image.open(continuation_path) as img:
-        width, height = img.size
-        # Aggressive crop: remove whitespace from all sides to match other table style
-        crop_left = int(width * 0.05)   # Remove left margin
-        crop_top = int(height * 0.02)   # Minimal top to keep first row
-        crop_right = int(width * 0.98)  # Remove right margin
-        crop_bottom = int(height * 0.45)  # Keep only table rows, remove bottom whitespace
-        if crop_bottom > crop_top and crop_right > crop_left:
-            img.crop((crop_left, crop_top, crop_right, crop_bottom)).save(continuation_path)
-            #print(f"      ✂️  Cropped all whitespace from continuation table")
-
-    #print(f"      ✅ Captured continuation to {continuation_path}")
-
-    return (output_path, continuation_path)
+def capture_extended_informational_tables(pdf, start: int, initial_img: pymupdf.Rect, output: str, zoomed_img: pymupdf.Matrix, maximum_number_pages: int = 10, column_count=None) -> tuple:
+    file_paths = []
+    beginning = pdf[start]
+    beginning.get_pixmap(matrix=zoomed_img, clip=initial_img, alpha=False).save(output)
+    file_paths.append(output)
+    root, extension = os.path.splitext(output)
+    stopper = ["Informational", "Low", "Medium", "High", "Critical", "Engagement Scope of Work", "Penetration Test Narrative", "Rules of Engagement", "Appendix", "Observation",
+               "Recommendation", "Evidence"]
+    doc_length = len(pdf)
+    upper_bound = min(start + maximum_number_pages, doc_length)
+    counter = 2
+    incremented = start + 1
+    for i in range(incremented, upper_bound):
+        end_pts = []
+        next_p = pdf[i]
+        continue_top = 36
+        continue_bottom = next_p.rect.height - 36
+        for stop in stopper:
+            for b in  next_p.search_for(stop):
+                if continue_top < b.y0:
+                    computed = b.y0 - 6
+                    end_pts.append(computed)
+        if end_pts:
+            continue_bottom = min(end_pts)
+        if continue_top >= continue_bottom:
+            break
+        is_present = data_is_present(next_p, continue_top, continue_bottom)
+        if not is_present:
+            break
+        verify_struc = pymupdf.Rect(36, continue_top, next_p.rect.width - 36, continue_bottom)
+        if column_count is not None:
+            extended_cols = compute_columns(next_p, verify_struc)
+            if extended_cols != column_count:
+                break
+        section_holder = pymupdf.Rect(36, continue_top, next_p.rect.width - 36, continue_bottom)
+        cropped_img = construct_portion(next_p, continue_top, continue_bottom, table_type="table")
+        cropped_img = enlarge_pic(cropped_img, section_holder, left_padding=2, right_padding=10, y_padding_top=8, y_padding_bottom=8)
+        cropped_img = left_trim(cropped_img, unit=8)
+        cropped_img = bottom_trim(cropped_img, unit=2)
+        extended_path = f"{root}_part{counter}{extension}"
+        next_p.get_pixmap(matrix=zoomed_img, clip=cropped_img, alpha=False).save(extended_path)
+        file_paths.append(extended_path)
+        counter += 1
+        if end_pts:
+            break
+    res = tuple(file_paths)
+    return res
 
 def number_to_word(n: int) -> str:
     """Convert number to word form (1-20 supported)"""
@@ -1336,7 +1399,7 @@ def number_to_word(n: int) -> str:
     }
     return words.get(n, str(n))
 
-def Informational(technical_report: str, findings_report_path: str) -> None:
+def Informational(technical_report: str, findings_report_path: str, customer: str) -> None:
     pdf = pymupdf.open(technical_report)
     os.makedirs("./Reports/Informational", exist_ok=True)
 
@@ -1427,6 +1490,11 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
                 first_image_path = f"./Reports/Informational/Informational-Table-{i}.png"
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
             pixels.save(first_image_path)
+            if second_table_identifier:
+                extended_image_parts = (first_image_path,)
+            else:
+                expected_count = compute_columns(page, table_container)
+                extended_image_parts = capture_extended_informational_tables(pdf, i, table_container, first_image_path, image_zoomed, maximum_number_pages=10, column_count=expected_count)
             #print(f"  Page {i}: Captured '{table_kind}' table -> {first_image_path}")
             if table_kind == "subdomain":
                 with Image.open(first_image_path) as img:
@@ -1446,17 +1514,14 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
                         doppelganger_count = row_count
                         doppelganger_page_index = i
                         #print(f"    📊 Found {doppelganger_count} doppelganger domain(s)")
-
-            first_table_candidates.append({"page": i, "path": first_image_path, "kind": table_kind})
+            first_table_candidates.append({"page": i, "path": extended_image_parts, "kind": table_kind})
             if second_table_identifier and dns_image is None:
                 top = second_table_identifier[0].y1 + 30
                 bottom = page.rect.height - 30
                 second_table_container = pymupdf.Rect(left_point, top, right_point, bottom)
                 first_dns_path = f"./Reports/Informational/DNS-Record1.png"
-                dns_part1, dns_part2 = capture_dns_continuation_parts(pdf, i, second_table_container, first_dns_path, image_zoomed)
-                if dns_image is None:
-                    dns_image = (dns_part1, dns_part2)
-
+                expected_count2 = compute_columns(page, second_table_container)
+                dns_image = capture_extended_informational_tables(pdf, i, second_table_container, first_dns_path, image_zoomed, maximum_number_pages=10, column_count=expected_count2)
     used_paths = set()
     for candidate in first_table_candidates:
         if candidate["kind"] == "dns_like":
@@ -1483,14 +1548,20 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
             break
 
     pdf.close()
-
+    place_holder = "[CUSTOMER NAME]"
     doc = Document(findings_report_path)
+    if customer.strip():
+        for para in doc.paragraphs:
+            if place_holder in para.text:
+                para.text = para.text.replace(place_holder, customer.strip())
+                break
 
     #print(f"\n📋 Informational Image Assignment:")
     #print(f"  Doppelganger: {doppelganger_image if doppelganger_image else 'None'}")
     #print(f"  Subdomain:    {subdomain_image if subdomain_image else 'None'}")
     if dns_image:
-        dns_part1, dns_part2 = dns_image
+        pass
+        #dns_part1, dns_part2 = dns_image
         #print(f"  DNS Part 1:   {dns_part1}")
         #print(f"  DNS Part 2:   {dns_part2 if dns_part2 else 'None'}")
     #else:
@@ -1500,48 +1571,24 @@ def Informational(technical_report: str, findings_report_path: str) -> None:
     inserted = False
     if doppelganger_image:
         #print(f"\n[1/3] Attempting Doppelganger insertion...")
-        result = insert_image_under_heading(doc, "DOPPELGANGER DOMAINS TABLE", doppelganger_image)
+        result = insert_extended_image_parts(doc, "DOPPELGANGER DOMAINS TABLE", doppelganger_image)
         inserted = (result is not None) or inserted
 
     if subdomain_image:
         #print(f"\n[2/3] Attempting Subdomain insertion...")
-        inserted_subdomain = insert_image_under_heading(doc, "SUB DOMAIN TABLE", subdomain_image)
+        inserted_subdomain = insert_extended_image_parts(doc, "SUB DOMAIN TABLE", subdomain_image)
         if not inserted_subdomain:
             #print(f"  Retrying with plural variant...")
-            inserted_subdomain = insert_image_under_heading(doc, "SUB DOMAINS TABLE", subdomain_image)
+            inserted_subdomain = insert_extended_image_parts(doc, "SUB DOMAINS TABLE", subdomain_image)
         inserted = (inserted_subdomain is not None) or inserted
 
     if dns_image:
-        dns_part1, dns_part2 = dns_image
-        #print(f"\n[3/3] Attempting DNS insertion...")
-        dns_para = insert_image_under_heading(doc, "DNS RECORD(S) TABLE", dns_part1)
+        dns_para = insert_extended_image_parts(doc, "DNS RECORD(S) TABLE", dns_image)
         if not dns_para:
-            #print(f"  Retrying with variant 'DNS RECORD TABLE'...")
-            dns_para = insert_image_under_heading(doc, "DNS RECORD TABLE", dns_part1)
+            dns_para = insert_extended_image_parts(doc, "DNS RECORD TABLE", dns_image)
         if not dns_para:
-            #print(f"  Retrying with variant 'DNS RECORD'...")
-            dns_para = insert_image_under_heading(doc, "DNS RECORD", dns_part1)
-
-        # Insert second DNS part if it exists and first part was successfully inserted
-        if dns_para and dns_part2:
-            #print(f"  📎 Inserting DNS continuation (part 2)...")
-            continuation_para = add_new_paragraph(dns_para)
-            indent_after_insert(dns_para, continuation_para)
-            # Use resize_image for proper scaling to avoid page breaks
-            inserted_ok = resize_image_modified(continuation_para, dns_part2, max_w=6.3, max_h=3.5, desired_ra=3.8)
-            if inserted_ok:
-                continuation_para.paragraph_format.space_before = Pt(6)
-                continuation_para.paragraph_format.space_after = Pt(6)
-                #print(f"    ✅ DNS part 2 inserted after part 1")
-            else:
-                # Fallback: remove the paragraph if image insertion failed
-                parent = continuation_para._element.getparent()
-                if parent is not None:
-                    parent.remove(continuation_para._element)
-                #print(f"    ⚠️  DNS part 2 insertion failed")
-
+            dns_para = insert_extended_image_parts(doc, "DNS RECORD", dns_image)
         inserted = (dns_para is not None) or inserted
-
     # Replace NUMBER (#) with actual doppelganger count
     if doppelganger_count is not None:
         #print(f"\n[Extra] Replacing doppelganger count placeholder...")
