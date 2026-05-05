@@ -30,8 +30,6 @@ import matplotlib.pyplot as plt
 from openpyxl.utils import get_column_letter
 
 
-# from packaging.utils import NormalizedName
-
 # default paths we should be using for our reports, i.e. ./Reports
 DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
 DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
@@ -51,10 +49,10 @@ def getReports() -> tuple[str, str]:
     findings_report = input("Please enter the file path for Findings Report: ")
     return (activity_report, findings_report)
 
-"""
-Find all testing from the activity report, and append it to the findings report.
-"""
 
+"""
+This computes and returns the page range of the Activity Log from the Activity Report, the range of the Activity Log table.
+"""
 def activity_log_page_range(activity_report: str) -> str:
     start = None
     last = None
@@ -78,6 +76,10 @@ def activity_log_page_range(activity_report: str) -> str:
     page_range = f"{start}-{last}"
     return page_range
 
+"""
+This function does data extraction on the Activity Log table from the Activity Report based on the computed page range result and then inserts
+user metadata, sub header, under "AUTOMATED TESTING ACTIVITY" followed by the extracted entries from the Activity Log table as bullets in the Findings Report.
+"""
 def automated_testing_activity(activity_report: str, findings_report: str, user_header: str) -> None:
     page_range = activity_log_page_range(activity_report)
     if page_range == "":
@@ -115,6 +117,10 @@ def automated_testing_activity(activity_report: str, findings_report: str, user_
     doc_holder.save(findings_report)
     print("✅ Automated Testing Activity was successfully populated and saved")
 
+"""
+This function scans through the Executive Report and searches for "Engagement Results Summary" page with the corresponding table and returns the
+specific page number.
+"""
 def engagement_results_page(executive_report: str) -> str:
     ENGAGEMENT_RESULTS_SUMMARY = "Engagement Results Summary"
     CATEGORY_SUMMARY = "Category Summary"
@@ -129,9 +135,17 @@ def engagement_results_page(executive_report: str) -> str:
                 return page
     return ""
 
-# Populates the Assessment Results Summary section in the Findings Report.
+"""
+This function creates/captures a screenshot of the page that has the "Engagement Results Summary" table through the use of OpenAI API sends the image data to the model of choosing,
+gpt-5-mini, to clean and extract the specified data based on the input prompt which includes row information pertaining to columns Category and Summary and returns these
+results in json format where it the data is then manually processed and extracted and later is inserted under the section "ASSESSMENT RESULTS SUMMARY" in the Findings Report.
+"""
 def assessment_results(executive_report: str, findings_report: str) -> None:
-    client_call = OpenAI(api_key = os.environ.get("OPENAI_API_KEY"))
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        print("❌ OpenAI API key not set")
+        return
+    client_call = OpenAI(api_key = openai_key)
     pdf = pymupdf.open(executive_report)
     page = engagement_results_page(executive_report)
     if page == "":
@@ -221,7 +235,9 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
     doc.save(findings_report)
     print("✅ Assessment Results Summary saved.")
 
-
+"""
+This functions cleans a title strings so that titles can be more easily compared.
+"""
 def process_titles_rec(x ,y):
     x = y.lower()
     x = x.replace("\n", " ")
@@ -230,7 +246,13 @@ def process_titles_rec(x ,y):
     x = x.strip()
     return x
 
-# Populates the Recommendations section in the Findings Report.
+"""
+This function scans through the Technical Report for findings vulnerabilities in the headers with a pattern "CRITICAL|FINDINGS, HIGH|FINDINGS, MEDIUM|FINDINGS, OR LOW|FINDINGS"
+Then extracts the FINDINGS name and severity level ie CRITICAL, HIGH, MEDIUM, LOW etc. and then uses that FINDINGS name and tries to find a match in the RECOMMENDATIONS spread sheet,
+by comparing to each row by their Finding Title and if a match is found, then it extracts its corresponding Recommendation from the spread sheet. This is iterated until all FINDINGS
+have been matched per severity level. Then finally these groups of data are then inserted under the "RECOMMENDATIONS" section in the Findings Report with each Recommendation
+having a reference to the specific Finding vulnerability, to refer to "FINDINGS DETAILS" section in the Findings Report.
+"""
 def recommendations(recommendation_csv: str, technical_report: str, findings_report: str) -> None:
     internal = pd.read_excel(recommendation_csv, sheet_name="Internal")
     external = pd.read_excel(recommendation_csv, sheet_name="External")
@@ -264,7 +286,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
                 normalized = entry.strip()
                 if normalized == "":
                     continue
-                matching = re.match(r"^(CRITICAL|HIGH|MEDIUM|LOW|INFORMATIONAL)\s+(.+)$", normalized, re.IGNORECASE)
+                matching = re.match(r"^(CRITICAL|HIGH|MEDIUM|LOW)\s+(.+)$", normalized, re.IGNORECASE)
                 if matching:
                     status = matching.group(1).title()
                     finding_title = matching.group(2).strip()
@@ -275,7 +297,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
                     technical_finds.append({"severity": status, "finding_title": finding_title, "cleaned_title": cleaned_title})
     recommendations = []
     viewed = set()
-    status_counter = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Informational": 0}
+    status_counter = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
     for finding in technical_finds:
         processed_title = finding["cleaned_title"]
         if processed_title in viewed:
@@ -347,13 +369,19 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
     doc.save(findings_report)
     print("✅ Recommendations was saved.")
 
-# For Appendix. To insert screenshot of image after section header "SCREENSHOT OF OPEN PORTS TABLE"
+"""
+This function constructs a paragraph to be run or inserted in the Findings Report.
+"""
 def add_new_paragraph(paragraph):
     inserted = OxmlElement("w:p")
     paragraph._p.addnext(inserted)
     return Paragraph(inserted, paragraph._parent)
 
-# To populate the Appendix section of the Findings Report.
+"""
+This function scans through the Technical Report for the section "Appendix B: Host Discovery (Opened Ports)" where it captures a screenshot of the Open Ports table and also checks
+if the table crosses over to the next page, if metadata of table crosses over then another additional screenshot is taken. Then, it inserts the screenshot of the table(s) under
+"APPENDIX" section of the Findings Report.
+"""
 def appendix(technical_report: str, findings_report: str) -> None:
     target_index = None
     title = "Appendix B: Host Discovery (Opened Ports)"
@@ -465,6 +493,9 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 print(f"vuln detected: {frame[2]}")
     return frames
 
+"""
+This function deletes any page breaks that are inside the paragraph itself, and turns off "page break before" for the current paragraph.
+"""
 def delete_page_brk_before(p):
     p.paragraph_format.page_break_before = False
     marker = ".//w:br[@w:type='page']"
@@ -473,6 +504,9 @@ def delete_page_brk_before(p):
         if ancestor is not None:
             ancestor.remove(brk)
 
+"""
+This function deletes a section break from the paragraph immediately before the current paragraph.
+"""
 def delete_sec_break_from_prev(p):
     prev = p._element.getprevious()
     if prev is None:
@@ -638,10 +672,16 @@ def enlarge_pic(box, container, left_padding=2, right_padding=10, y_padding_top=
     res = pymupdf.Rect(max_x0, max_y0, min_x1, min_y1)
     return res
 
+"""
+This function trims excess white space in the left side of the image.
+"""
 def left_trim(container, unit=8):
     res = pymupdf.Rect(container.x0 + unit, container.y0, container.x1, container.y1)
     return res
 
+"""
+This function trims excess white space in the bottom side of the image.
+"""
 def bottom_trim(container, unit=8):
     res = pymupdf.Rect(container.x0, container.y0, container.x1, container.y1 - unit)
     return res
@@ -1039,6 +1079,7 @@ def preserve_first_exec(p, placeholder: str, switch: str) -> bool:
         for entry in p.runs[1:]:
             entry.text = ""
     return True
+
 def is_singular_plural(value: str) -> bool:
     processed = value.strip().lower()
     if processed == "one" or processed == "1" or processed == "(1)":
