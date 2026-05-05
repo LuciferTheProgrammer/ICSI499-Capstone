@@ -4,3 +4,8 @@ pdfplumber
 openai
 pymupdf
 flask
+opencv-python-headless
+customtkinter
+matplotlib
+pywin32
+types-pywin32
