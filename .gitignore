@@ -1,2 +1,23 @@
 venv/
 *.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Installer output
+installer/*.exe
+
+# Word temporary lock files
+~$*.docx
+~$*.xlsx
+
+# Local environment/secrets
+.env

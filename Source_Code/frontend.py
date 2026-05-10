@@ -10,7 +10,7 @@ import sys
 import io
 from datetime import datetime
 
-# ── Import backend functions ──────────────────────────────────────────────────
+# Import backend functions
 from AutomationPrototype import (
     automated_testing_activity,
     severity_counter,
@@ -31,7 +31,7 @@ from AutomationPrototype import (
     DEFAULT_TECHNICAL_REPORT_PATH,
 )
 
-# ── customtkinter appearance defaults ─────────────────────────────────────────
+# customtkinter appearance defaults
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
@@ -44,7 +44,7 @@ LOG_COLORS = {
 }
 
 
-# ── Main Application ──────────────────────────────────────────────────────────
+# Main Application
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -54,12 +54,12 @@ class App(ctk.CTk):
         self.minsize(680, 540)
         self._build_ui()
 
-    # ── UI Construction ───────────────────────────────────────────────────────
+    # UI Construction
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # ── Top bar ──────────────────────────────────────────────────────────
+        # Top bar
         top_bar = ctk.CTkFrame(self, corner_radius=0, height=54)
         top_bar.grid(row=0, column=0, sticky="ew")
         top_bar.grid_columnconfigure(0, weight=1)
@@ -78,13 +78,13 @@ class App(ctk.CTk):
         )
         self.theme_btn.grid(row=0, column=1, padx=16, pady=10)
 
-        # ── Main content frame ────────────────────────────────────────────────
+        # Main content frame
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=1, column=0, sticky="nsew", padx=20, pady=(12, 16))
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(2, weight=1)
 
-        # ── File selectors card ───────────────────────────────────────────────
+        # File selectors card
         files_card = ctk.CTkFrame(content)
         files_card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         files_card.grid_columnconfigure(1, weight=1)
@@ -112,7 +112,7 @@ class App(ctk.CTk):
     # padding at bottom of card
         ctk.CTkLabel(files_card, text="").grid(row=6, column=0)
 
-        # ── Action buttons ────────────────────────────────────────────────────
+        # Action buttons
         actions = ctk.CTkFrame(content, fg_color="transparent")
         actions.grid(row=1, column=0, sticky="w", pady=(0, 10))
         for column in range(5):
@@ -242,7 +242,7 @@ class App(ctk.CTk):
         )
         self.clear_btn.grid(row=2, column=2, padx=(0, 10), pady=(10, 0), sticky="w")
 
-        # ── Log output ────────────────────────────────────────────────────────
+        # Log output
         log_card = ctk.CTkFrame(content)
         log_card.grid(row=2, column=0, sticky="nsew")
         log_card.grid_columnconfigure(0, weight=1)
@@ -278,7 +278,7 @@ class App(ctk.CTk):
         self.log.tag_config("HEADER", foreground=LOG_COLORS["HEADER"],
                             font=("Cascadia Code", 9, "bold"))
 
-        # ── Status bar ────────────────────────────────────────────────────────
+        # Status bar
         self.status_var = tk.StringVar(value="Ready.")
         ctk.CTkLabel(
             self, textvariable=self.status_var,
@@ -305,7 +305,7 @@ class App(ctk.CTk):
         if path:
             var.set(path)
 
-    # ── Logging helpers ───────────────────────────────────────────────────────
+    # Logging helpers
     def _log(self, text: str, tag: str = "PLAIN"):
         ts = datetime.now().strftime("%H:%M:%S")
         self.log.config(state="normal")
@@ -320,7 +320,7 @@ class App(ctk.CTk):
         self.log.config(state="disabled")
         self.status_var.set("Log cleared.")
 
-    # ── Redirect stdout into the log ──────────────────────────────────────────
+    # Redirect stdout into the log
     def _capture_stdout(self) -> io.StringIO:
         buf = io.StringIO()
         sys.stdout = buf
@@ -335,7 +335,7 @@ class App(ctk.CTk):
                 tag = "OK" if "✅" in line else ("WARN" if "❌" in line or "error" in line.lower() else "PLAIN")
                 self._log(line, tag)
 
-    # ── Busy state ────────────────────────────────────────────────────────────
+    # Busy state
     def _set_busy(self, busy: bool):
         state = "disabled" if busy else "normal"
         self.run_customer_btn.configure(state=state)
@@ -353,7 +353,10 @@ class App(ctk.CTk):
         self.clear_btn.configure(state=state)
         self.status_var.set("Running…" if busy else "Done.")
 
-    # ── Actions ───────────────────────────────────────────────────────────────
+    # Actions
+    """
+    This runs the customer function for the title page of the Findings Report.
+    """
     def _run_customer(self):
         findings = self.findings_var.get().strip()
         if not findings:
@@ -388,6 +391,9 @@ class App(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the automated testing activity function for the AUTOMATED TESTING ACTIVITY section of the Findings Report.
+    """
     def _run_testing(self):
         activity = self.activity_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -418,6 +424,9 @@ class App(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the assessment results summary function for the ASSESSMENT RESULTS SUMMARY section of the Findings Report.
+    """
     def _run_assessments(self):
         executive = self.executive_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -441,6 +450,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the recommendations function for the RECOMMENDATIONS section of the Findings Report.
+    """
     def _run_recommendations(self):
         recommendation = self.recommendation_var.get().strip()
         technical = self.technical_var.get().strip()
@@ -467,6 +479,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the appendix function for the APPENDIX section of the Findings Report.
+    """
     def _run_appendix(self):
         technical = self.technical_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -490,6 +505,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the findings function for the FINDINGS DETAILS section of the Findings Report.
+    """
     def _run_findings(self):
         find_info = self.recommendation_var.get().strip()
         technical = self.technical_var.get().strip()
@@ -522,6 +540,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the IP function for the IP ADDRESSES section of the Findings Report.
+    """
     def _run_IP(self):
         technical = self.technical_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -544,7 +565,9 @@ class App(ctk.CTk):
             finally:
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
-
+    """
+    This runs the host discovery function function for the NARRATIVE, HOST DISCOVERY section of the Findings Report.
+    """
     def _run_HostD(self):
         technical = self.technical_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -568,6 +591,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the exploitation function for the NARRATIVE, EXPLOITATION section of the Findings Report.
+    """
     def _run_Exploitation(self):
         findings = self.findings_var.get().strip()
         if not findings:
@@ -595,6 +621,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the informational function for the INFORMATIONAL section of the Findings Report.
+    """
     def _run_Informational(self):
         technical = self.technical_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -623,7 +652,9 @@ class App(ctk.CTk):
             finally:
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
-
+    """
+    This runs the findings summary function for the FINDINGS SUMMARY section of the Findings Report.
+    """
     def _run_Findings_Summary(self):
         technical = self.technical_var.get().strip()
         findings = self.findings_var.get().strip()
@@ -647,6 +678,9 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._set_busy(False))
         threading.Thread(target=worker, daemon=True).start()
 
+    """
+    This runs the severity function to display the number of Findings found from the Technical Report.
+    """
     def _run_severity(self):
         technical = self.technical_var.get().strip()
         if not technical:
@@ -678,14 +712,14 @@ class App(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    # ── Theme toggle ──────────────────────────────────────────────────────────
+    # Theme toggle
     def _toggle_theme(self):
         current = ctk.get_appearance_mode().lower()
         new_mode = "dark" if current == "light" else "light"
         ctk.set_appearance_mode(new_mode)
         self.theme_btn.configure(text="☀  Light Mode" if new_mode == "dark" else "🌙  Dark Mode")
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# Entry point
 if __name__ == "__main__":
     app = App()
     app.mainloop()

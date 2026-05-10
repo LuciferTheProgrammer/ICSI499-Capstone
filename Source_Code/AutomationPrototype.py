@@ -1,17 +1,17 @@
-# Automation Prototype source code.
+"""
+Automation Prototype source code to automate data: text and image extraction from reports (Technical, Executive, Activity, and Findings/Recommendations) to insertion
+to the Customer Findings Report, ultimately automating cybersecurity reporting.
+"""
 import base64
 import win32com.client
 import re
 import zipfile
-import shutil
 import tempfile
 from pathlib import Path
 from collections import Counter
-from operator import truediv
 import openpyxl
 from lxml import etree
 import pdfplumber
-import camelot
 from camelot.io import read_pdf
 from docx import Document
 from docx.shared import Pt, Inches
@@ -26,40 +26,42 @@ from docx.text.paragraph import Paragraph
 from docx.oxml import OxmlElement
 from PIL import Image
 from docx.shared import RGBColor
-import matplotlib.pyplot as plt
 from openpyxl.utils import get_column_letter
+import sys
 
+# Tries to import function from another source file, for cropping functionality.
 try:
     from clean_crop import crop_table_from_screenshot
 except Exception:
     crop_table_from_screenshot = None
 
-
-# from packaging.utils import NormalizedName
-
 # default paths we should be using for our reports, i.e. ./Reports
-DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf" # standardize the paths
-DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx" # if we're creating the report
+DEFAULT_ACTIVITY_REPORT_PATH: str = "./Reports/OrbitalFire-ActivityReportDemo.pdf"
+DEFAULT_FINDINGS_REPORT_PATH: str = "./Reports/Sample499/FindingsReportTest.docx"
 DEFAULT_GLOSSARY_PATH: str = "./Reports/OrbitalFire-Glossary.csv"
 DEFAULT_TECHNICAL_REPORT_PATH: str = "./Reports/OrbitalFire-TechnicalReportDemo.pdf"
 DEFAULT_EXECUTIVE_REPORT_PATH: str = "./Reports/OrbitalFire-ExecutiveReportDemo.pdf"
 DEFAULT_RECOMMENDATIONS_PATH: str = "./Reports/FindingsDetailsAndRecommendations.xlsx"
 SEVERITIES_LEVELS = ["Informational", "Low", "Medium", "High", "Critical"]
 
-"""
-Get the report paths via user input, returns a tuple of the paths we yield.
-"""
-def getReports() -> tuple[str, str]:
-    activity_report: str = input("Please enter the file path for Activity Report: ")
-    executive_report = input("Please enter the file path for Executive Report: ")
-    technical_report = input("Please enter the file path for Technical Report: ")
-    findings_report = input("Please enter the file path for Findings Report: ")
-    return (activity_report, findings_report)
+USER_DOWNLOADS_DIR = Path.home() / "Downloads" / "FindingsAutomation"
+USER_REPORTS_DIR = USER_DOWNLOADS_DIR / "Reports"
 
 """
-Find all testing from the activity report, and append it to the findings report.
+This function finds the actual location/file path of the static symbol: gray flame for the Recommendations section of the Findings Report.
 """
+def path_resource(path: str) -> str:
+    if hasattr(sys, "_MEIPASS"):
+        res_path = str(Path(sys._MEIPASS) / path)
+        return res_path
+    else:
+        res_path = str(Path(__file__).resolve().parent.parent / path)
+        return res_path
 
+
+"""
+This computes and returns the page range of the Activity Log from the Activity Report, the range of the Activity Log table.
+"""
 def activity_log_page_range(activity_report: str) -> str:
     start = None
     last = None
@@ -83,6 +85,10 @@ def activity_log_page_range(activity_report: str) -> str:
     page_range = f"{start}-{last}"
     return page_range
 
+"""
+This function does data extraction on the Activity Log table from the Activity Report based on the computed page range result and then inserts
+user metadata, sub header, under "AUTOMATED TESTING ACTIVITY" followed by the extracted entries from the Activity Log table as bullets in the Findings Report.
+"""
 def automated_testing_activity(activity_report: str, findings_report: str, user_header: str) -> None:
     page_range = activity_log_page_range(activity_report)
     if page_range == "":
@@ -120,6 +126,10 @@ def automated_testing_activity(activity_report: str, findings_report: str, user_
     doc_holder.save(findings_report)
     print("✅ Automated Testing Activity was successfully populated and saved")
 
+"""
+This function scans through the Executive Report and searches for "Engagement Results Summary" page with the corresponding table and returns the
+specific page number.
+"""
 def engagement_results_page(executive_report: str) -> str:
     ENGAGEMENT_RESULTS_SUMMARY = "Engagement Results Summary"
     CATEGORY_SUMMARY = "Category Summary"
@@ -134,9 +144,17 @@ def engagement_results_page(executive_report: str) -> str:
                 return page
     return ""
 
-# Populates the Assessment Results Summary section in the Findings Report.
+"""
+This function creates/captures a screenshot of the page that has the "Engagement Results Summary" table through the use of OpenAI API sends the image data to the model of choosing,
+gpt-5-mini, to clean and extract the specified data based on the input prompt which includes row information pertaining to columns Category and Summary and returns these
+results in json format where it the data is then manually processed and extracted and later is inserted under the section "ASSESSMENT RESULTS SUMMARY" in the Findings Report.
+"""
 def assessment_results(executive_report: str, findings_report: str) -> None:
-    client_call = OpenAI(api_key = os.environ.get("OPENAI_API_KEY"))
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        print("❌ OpenAI API key not set")
+        return
+    client_call = OpenAI(api_key = openai_key)
     pdf = pymupdf.open(executive_report)
     page = engagement_results_page(executive_report)
     if page == "":
@@ -226,7 +244,9 @@ def assessment_results(executive_report: str, findings_report: str) -> None:
     doc.save(findings_report)
     print("✅ Assessment Results Summary saved.")
 
-
+"""
+This functions cleans a title strings so that titles can be more easily compared.
+"""
 def process_titles_rec(x ,y):
     x = y.lower()
     x = x.replace("\n", " ")
@@ -235,7 +255,13 @@ def process_titles_rec(x ,y):
     x = x.strip()
     return x
 
-# Populates the Recommendations section in the Findings Report.
+"""
+This function scans through the Technical Report for findings vulnerabilities in the headers with a pattern "CRITICAL|FINDINGS, HIGH|FINDINGS, MEDIUM|FINDINGS, OR LOW|FINDINGS"
+Then extracts the FINDINGS name and severity level ie CRITICAL, HIGH, MEDIUM, LOW etc. and then uses that FINDINGS name and tries to find a match in the RECOMMENDATIONS spread sheet,
+by comparing to each row by their Finding Title and if a match is found, then it extracts its corresponding Recommendation from the spread sheet. This is iterated until all FINDINGS
+have been matched per severity level. Then finally these groups of data are then inserted under the "RECOMMENDATIONS" section in the Findings Report with each Recommendation
+having a reference to the specific Finding vulnerability, to refer to "FINDINGS DETAILS" section in the Findings Report.
+"""
 def recommendations(recommendation_csv: str, technical_report: str, findings_report: str) -> None:
     internal = pd.read_excel(recommendation_csv, sheet_name="Internal")
     external = pd.read_excel(recommendation_csv, sheet_name="External")
@@ -269,7 +295,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
                 normalized = entry.strip()
                 if normalized == "":
                     continue
-                matching = re.match(r"^(CRITICAL|HIGH|MEDIUM|LOW|INFORMATIONAL)\s+(.+)$", normalized, re.IGNORECASE)
+                matching = re.match(r"^(CRITICAL|HIGH|MEDIUM|LOW)\s+(.+)$", normalized, re.IGNORECASE)
                 if matching:
                     status = matching.group(1).title()
                     finding_title = matching.group(2).strip()
@@ -280,7 +306,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
                     technical_finds.append({"severity": status, "finding_title": finding_title, "cleaned_title": cleaned_title})
     recommendations = []
     viewed = set()
-    status_counter = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Informational": 0}
+    status_counter = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
     for finding in technical_finds:
         processed_title = finding["cleaned_title"]
         if processed_title in viewed:
@@ -324,8 +350,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
         right_component = right_component.strip()
         body_cont1 = new_position.insert_paragraph_before()
         body_cont1.style = "List Number 2"
-        os.makedirs("./Reports/Recommendations", exist_ok=True)
-        flame = "./Reports/Recommendations/gray_flame.png"
+        flame = path_resource("Reports/Recommendations/gray_flame.png")
         flame_holder = body_cont1.add_run()
         flame_holder.add_picture(flame, width=Pt(12))
         body_cont1.add_run(" ")
@@ -335,7 +360,7 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
         body_cont2.font.name = "Corbel"
         body_cont2.font.size = Pt(12)
         if right_component:
-            normalized_def = body_cont1.add_run(" - " + right_component)
+            normalized_def = body_cont1.add_run(" – " + right_component)
             normalized_def.font.color.rgb = RGBColor(64, 64, 64)
             normalized_def.font.name = "Corbel"
             normalized_def.font.size = Pt(12)
@@ -352,12 +377,16 @@ def recommendations(recommendation_csv: str, technical_report: str, findings_rep
     doc.save(findings_report)
     print("✅ Recommendations was saved.")
 
-# For Appendix. To insert screenshot of image after section header "SCREENSHOT OF OPEN PORTS TABLE"
+"""
+This function constructs a paragraph to be run or inserted in the Findings Report.
+"""
 def add_new_paragraph(paragraph):
     inserted = OxmlElement("w:p")
     paragraph._p.addnext(inserted)
     return Paragraph(inserted, paragraph._parent)
-
+"""
+This function just crops left over excess white space from the other crop functions, just to make final screenshots more concise in appearance.
+"""
 def crop_saved_image_whitespace(image_path: str, padding: int = 10) -> None:
     if crop_table_from_screenshot is None:
         return
@@ -374,12 +403,17 @@ def crop_saved_image_whitespace(image_path: str, padding: int = 10) -> None:
     except Exception as e:
         print(f"WARNING: Failed to crop whitespace for '{image_path}': {e}")
 
-# To populate the Appendix section of the Findings Report.
+"""
+This function scans through the Technical Report for the section "Appendix B: Host Discovery (Opened Ports)" where it captures a screenshot of the Open Ports table and also checks
+if the table crosses over to the next page, if metadata of table crosses over then another additional screenshot is taken. Then, it inserts the screenshot of the table(s) under
+"APPENDIX" section of the Findings Report.
+"""
 def appendix(technical_report: str, findings_report: str) -> None:
     target_index = None
     title = "Appendix B: Host Discovery (Opened Ports)"
-    image_container = "./Reports/Appendix/OPEN_PORTS.PNG"
-    os.makedirs("./Reports/Appendix", exist_ok=True)
+    appendix_dir = USER_REPORTS_DIR / "Appendix"
+    appendix_dir.mkdir(parents=True, exist_ok=True)
+    image_container = str(appendix_dir / "OPEN_PORTS.PNG")
     pdf_p = pymupdf.open(technical_report)
     target = None
     table_container = None
@@ -422,7 +456,7 @@ def appendix(technical_report: str, findings_report: str) -> None:
         extension = pymupdf.Rect(36, 36, next_p.rect.width - 36, next_p.rect.height - 36)
         status_cond = data_is_present(next_p, 36, next_p.rect.height - 36)
         if status_cond:
-            next_part_path = "./Reports/Appendix/OPEN_PORTS_PART2.PNG"
+            next_part_path = str(appendix_dir / "OPEN_PORTS_PART2.PNG")
             next_p.get_pixmap(matrix=image_zoomed, clip=extension, alpha=False).save(next_part_path)
             crop_saved_image_whitespace(next_part_path)
             image_parts.append(next_part_path)
@@ -452,27 +486,26 @@ def appendix(technical_report: str, findings_report: str) -> None:
     doc.save(findings_report)
     print("✅ Findings Report was successfully saved.")
 
-# related to the excel file
-def excelwork():
-    print("test")
-    glossary = pd.read_csv(DEFAULT_GLOSSARY_PATH)
 
-def locate_image_technical_report(technical_report: str):
-    # use pdf plumber for the other stuff, for the entries, we can get valid information
-    data = pdfplumber.open(technical_report)
+
 
 # type to classify our vulnerabilities
 VulnerabilityRating = Union[Literal["Informational"], Literal["Low"], Literal["Medium"], Literal["High"], Literal["Critical"]]
+
 """
 Determines if a table entry is a vulnerability rating, targeted for certain tables
 """
 def isVulnerabilityRating(val: str) -> bool:
     return val == "Informational" or val == "Low" or val == "Medium" or val == "High" or val == "Critical"
 
+"""
+This defines the Vulnerability class with fields: name of the vulnerability and rating or severity level.
+"""
 @dataclass
 class VulnerabilityFrame:
     discoveredName: str
     rating: VulnerabilityRating
+
 """
 Counts the number of severities inside of the technical report, helps get the final number we need
 in the findings report
@@ -488,6 +521,9 @@ def severity_counter(technical_report: str) -> list[VulnerabilityFrame]:
                 print(f"vuln detected: {frame[2]}")
     return frames
 
+"""
+This function deletes any page breaks that are inside the paragraph itself, and turns off "page break before" for the current paragraph.
+"""
 def delete_page_brk_before(p):
     p.paragraph_format.page_break_before = False
     marker = ".//w:br[@w:type='page']"
@@ -495,7 +531,9 @@ def delete_page_brk_before(p):
         ancestor = brk.getparent()
         if ancestor is not None:
             ancestor.remove(brk)
-
+"""
+This function deletes a section break from the paragraph immediately before the current paragraph.
+"""
 def delete_sec_break_from_prev(p):
     prev = p._element.getprevious()
     if prev is None:
@@ -507,6 +545,9 @@ def delete_sec_break_from_prev(p):
         if ancestor is not None:
             ancestor.remove(section)
 
+"""
+This functions takes in a screen shot of an image and resizes its boundaries with respect to its height and width for a more precise capture.
+"""
 def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> None:
     with Image.open(file_image) as image:
         pixel_w, pixel_h = image.size
@@ -523,6 +564,9 @@ def resize_image(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, des
             final_w = final_h * prop
         p.add_run().add_picture(file_image, width=Inches(final_w), height=Inches(final_h))
 
+"""
+This function updates the bounded coordinates of the image structure for the table/log to optimize the screenshot before being captured.
+"""
 def modify_bounds(container, top, bottom, left, right, x_padding = 4, y_padding = 4):
     max_left = max(left, container.x0 - x_padding)
     max_top = max(top, container.y0 - y_padding)
@@ -531,6 +575,9 @@ def modify_bounds(container, top, bottom, left, right, x_padding = 4, y_padding 
     result = pymupdf.Rect(max_left, max_top, min_right, min_bottom)
     return result
 
+"""
+This function centers the captured data: table/log before being captured in a screenshot.
+"""
 def center(container, top, bottom, left, right, extra_w = 18):
     center_data = (container.x0 + container.x1) / 2
     target_w = min(right - left, container.width + extra_w)
@@ -550,7 +597,10 @@ def center(container, top, bottom, left, right, extra_w = 18):
     mod_bottom = min(bottom, container.y1 + 3)
     res = pymupdf.Rect(alter_x0, mod_top, alter_x1, mod_bottom)
     return res
-
+"""
+This function builds the container to contain the bounded coordinates of the table or log that will be captured as a screenshot: Either for Affected Nodes
+or Evidence for the Findings Details section of the Findings Report.
+"""
 def construct_portion(p, top, bottom, table_type="text"):
     left_side = 36
     right_side = p.rect.width - 36
@@ -652,7 +702,9 @@ def construct_portion(p, top, bottom, table_type="text"):
         return combine
     default = pymupdf.Rect(left_side, top, right_side, bottom)
     return default
-
+"""
+This function enlarges the given image container for a better close up look.
+"""
 def enlarge_pic(box, container, left_padding=2, right_padding=10, y_padding_top=6, y_padding_bottom=10):
     max_x0 = max(container.x0, box.x0 - left_padding)
     max_y0 = max(container.y0, box.y0 - y_padding_top)
@@ -661,14 +713,23 @@ def enlarge_pic(box, container, left_padding=2, right_padding=10, y_padding_top=
     res = pymupdf.Rect(max_x0, max_y0, min_x1, min_y1)
     return res
 
+"""
+This function trims excess white space in the left side of the image.
+"""
 def left_trim(container, unit=8):
     res = pymupdf.Rect(container.x0 + unit, container.y0, container.x1, container.y1)
     return res
 
+"""
+This function trims excess white space in the bottom side of the image.
+"""
 def bottom_trim(container, unit=8):
     res = pymupdf.Rect(container.x0, container.y0, container.x1, container.y1 - unit)
     return res
 
+"""
+This function checks if there is data present in a given page in a pdf document.
+"""
 def data_is_present(page, top, bottom,) -> bool:
     target = []
     discard = {"ORBITALFIRE", "PENETRATION", "TESTING"}
@@ -689,6 +750,14 @@ def data_is_present(page, top, bottom,) -> bool:
         return True
     return False
 
+"""
+This function scans through the Technical Report for findings vulnerabilities in the headers with a pattern "CRITICAL|FINDINGS, HIGH|FINDINGS, MEDIUM|FINDINGS, OR LOW|FINDINGS"
+Then extracts the FINDINGS name and severity level ie CRITICAL, HIGH, MEDIUM, LOW etc. and then uses that FINDINGS name and tries to find a match in the FINDINGS spread sheet,
+by comparing to each row by their Finding Title and if a match is found, then it extracts its corresponding Finding Description from the spread sheet. This is iterated until all FINDINGS
+have been matched per severity level. In addition, also captures a screenshot of the Affected Nodes table and Evidence log per Finding in all severity levels. Finally,
+it inserts all discovered Findings under each severity level with this structure: Finding Title - Finding Description, Affected Nodes (screenshot of table), and Evidence (screenshot of log) under 
+the FINDINGS DETAILS section in the Findings Report.
+"""
 def finding_details(technical_path: str, findings_report: str, details_path: str, customer_name: str) -> None:
     internal = pd.read_excel(details_path, sheet_name="Internal")
     external = pd.read_excel(details_path, sheet_name="External")
@@ -752,8 +821,8 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                 counter += 2
                 continue
             counter += 1
-    image_directory = "./Reports/Findings_Details"
-    os.makedirs(image_directory, exist_ok=True)
+    image_directory = USER_REPORTS_DIR / "Findings_Details"
+    image_directory.mkdir(parents=True, exist_ok=True)
     for i, find in enumerate(finds, start=1):
         find["affected_nodes_table"] = []
         find["evidence_table"] = []
@@ -787,7 +856,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                         crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
                         crop = left_trim(crop, unit=12)
                         crop = bottom_trim(crop, unit=2)
-                        file_path_affected = os.path.join(image_directory, f"Affected_Sample_{i}_part1.png")
+                        file_path_affected = str(image_directory / f"Affected_Sample_{i}_part1.png")
                         page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_affected)
                         crop_saved_image_whitespace(file_path_affected)
                         find["affected_nodes_table"].append(file_path_affected)
@@ -817,7 +886,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                                     continue_crop = enlarge_pic(continue_crop, continue_section, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
                                     continue_crop = left_trim(continue_crop, unit=12)
                                     continue_crop = bottom_trim(continue_crop, unit=2)
-                                    file_path_affected_continue = os.path.join(image_directory, f"Affected_Sample_{i}_part{counter_part}.png")
+                                    file_path_affected_continue = str(image_directory / f"Affected_Sample_{i}_part{counter_part}.png")
                                     next.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=continue_crop, alpha=False).save(file_path_affected_continue)
                                     crop_saved_image_whitespace(file_path_affected_continue)
                                     find["affected_nodes_table"].append(file_path_affected_continue)
@@ -848,7 +917,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                         section_cont = pymupdf.Rect(36, top, page.rect.width - 36, bottom)
                         crop = enlarge_pic(crop, section_cont, left_padding=2, right_padding=6, y_padding_top=4, y_padding_bottom=6)
                         crop = bottom_trim(crop, unit=10)
-                        file_path_evidence = os.path.join(image_directory, f"Evidence_Sample_{i}_part1.png")
+                        file_path_evidence = str(image_directory / f"Evidence_Sample_{i}_part1.png")
                         page.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=crop, alpha=False).save(file_path_evidence)
                         crop_saved_image_whitespace(file_path_evidence)
                         find["evidence_table"].append(file_path_evidence)
@@ -882,7 +951,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
                                     continue_crop = enlarge_pic(continue_crop, continue_section, left_padding=2, right_padding=10, y_padding_top=10, y_padding_bottom=10)
                                     continue_crop = left_trim(continue_crop, unit=12)
                                     continue_crop = bottom_trim(continue_crop, unit=2)
-                                    file_path_evidence_continue = os.path.join(image_directory, f"Evidence_Sample_{i}_part{counter_part}.png")
+                                    file_path_evidence_continue = str(image_directory / f"Evidence_Sample_{i}_part{counter_part}.png")
                                     next.get_pixmap(matrix=pymupdf.Matrix(2,2), clip=continue_crop, alpha=False).save(file_path_evidence_continue)
                                     crop_saved_image_whitespace(file_path_evidence_continue)
                                     find["evidence_table"].append(file_path_evidence_continue)
@@ -946,7 +1015,7 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
             run_para1.font.color.rgb = RGBColor(64, 64, 64)
             run_para1.font.name = "Corbel"
             run_para1.font.size = Pt(12)
-            run_para_hyphen = para1.add_run(" - ")
+            run_para_hyphen = para1.add_run(" – ")
             run_para_hyphen.font.color.rgb = RGBColor(64, 64, 64)
             run_para_hyphen.font.name = "Corbel"
             run_para_hyphen.font.size = Pt(12)
@@ -988,6 +1057,10 @@ def finding_details(technical_path: str, findings_report: str, details_path: str
     doc.save(findings_report)
     print(f"✅ Findings Details was successfully populated and saved")
 
+"""
+This function extracts the IP Address derived from the table under Engagement Scope of Work section from the Technical Report and inserts it into the corresponding
+section in the Findings Report.
+"""
 def IPAddress(technical: str, findings_report_path: str) -> None:
     IP_Address_sec = False
     table_head = "IP ADDRESSES & RANGES"
@@ -1047,6 +1120,9 @@ def IPAddress(technical: str, findings_report_path: str) -> None:
         doc.save(findings_report_path)
         print("✅ IP Address was successfully populated and saved")
 
+"""
+This function replaces a placeholder in an existing paragraph with a new text.
+"""
 def place_host_data(paragraph, temp: str, data: str) -> bool:
     for entry in paragraph.runs:
         if temp in entry.text:
@@ -1054,18 +1130,9 @@ def place_host_data(paragraph, temp: str, data: str) -> bool:
             return True
     return False
 
-def preserve_first_exec(p, placeholder: str, switch: str) -> bool:
-    content = ""
-    for i in p.runs:
-        content += i.text
-    if placeholder not in content:
-        return False
-    modified = content.replace(placeholder, switch)
-    if p.runs:
-        p.runs[0].text = modified
-        for entry in p.runs[1:]:
-            entry.text = ""
-    return True
+"""
+This function determines if a given word will generate a singular or plural numbered results.
+"""
 def is_singular_plural(value: str) -> bool:
     processed = value.strip().lower()
     if processed == "one" or processed == "1" or processed == "(1)":
@@ -1074,6 +1141,10 @@ def is_singular_plural(value: str) -> bool:
         return True
     return False
 
+""""
+This function extracts numbers derived from IP address/range provided, system active, address/range scanned, and ports opened from the Host Discovery, under the
+Penetration Test Narrative section from the Technical Report. It then inserts these numbers under the NARRATIVE, HOST DISCOVERY section in the Findings Report.
+"""
 def Host_Discovery(technical: str, findings_report_path: str) -> None:
     start_point = "Host Discovery"
     end_point = "Enumeration"
@@ -1173,21 +1244,33 @@ def Host_Discovery(technical: str, findings_report_path: str) -> None:
     print("✅ Host Discovery was successfully populated and saved")
 
 
+"""
+This function cleans up a given text String.
+"""
 def normalize_anchor_text(text: str) -> str:
     return " ".join(text.upper().split()).strip()
 
+"""
+This function set the paragraph to match the given formatting of the Findings Report template. Mostly for bodies, with a text font of Corbel and size of 12, and
+greyish font color.
+"""
 def set_para(p) -> None:
     for entry in p.runs:
         entry.font.name = "Corbel"
         entry.font.size = Pt(12)
         entry.font.color.rgb = RGBColor(64, 64, 64)
 
+"""
+This function indents a given paragraph.
+"""
 def indent_after_insert(body, destination) -> None:
     destination.paragraph_format.left_indent = Inches(0.25)
     destination.paragraph_format.right_indent = body.paragraph_format.right_indent
     destination.paragraph_format.first_line_indent = Inches(0)
 
-
+"""
+This function inserts a given image under a given header in the Findings Report, mostly used for INFORMATIONAL section.
+"""
 def insert_image_under_heading(doc: Document, heading_text: str, image_path: str):
     """
     Inserts an image under a heading anchor in the document.
@@ -1196,13 +1279,10 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
     normalized_heading = normalize_anchor_text(heading_text)
     target_paragraph = None
 
-    #print(f"🔍 Searching for anchor: '{heading_text}' (normalized: '{normalized_heading}')")
-
     # First pass: exact match
     for p in doc.paragraphs:
         if normalize_anchor_text(p.text) == normalized_heading:
             target_paragraph = p
-            #print(f"✓ Found exact match at paragraph: '{p.text[:80]}'")
             break
 
     # Second pass: paragraph starts with the anchor text (e.g., "SUB DOMAIN TABLE:" or "SUB DOMAIN TABLE -")
@@ -1211,7 +1291,6 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
             normalized_p_text = normalize_anchor_text(p.text)
             if normalized_p_text.startswith(normalized_heading):
                 target_paragraph = p
-                #print(f"✓ Found startswith match at paragraph: '{p.text[:80]}'")
                 break
 
     # Third pass: the anchor is the ONLY significant text in the paragraph (allowing for punctuation)
@@ -1222,7 +1301,6 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
             cleaned = normalized_p_text.strip(":-–—.,;!?()[]{}\"'")
             if cleaned == normalized_heading:
                 target_paragraph = p
-                #print(f"✓ Found cleaned match at paragraph: '{p.text[:80]}'")
                 break
 
     # Fourth pass: anchor text is contained anywhere within the paragraph (e.g., "Reference:\nDOPPELGANGER DOMAINS TABLE")
@@ -1231,18 +1309,9 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
             normalized_p_text = normalize_anchor_text(p.text)
             if normalized_heading in normalized_p_text:
                 target_paragraph = p
-                #print(f"✓ Found anchor embedded in paragraph: '{p.text[:100]}...'")
                 break
 
     if target_paragraph is None:
-        #print(f"✗ Anchor '{heading_text}' not found in document")
-        #print(f"  📄 Showing paragraphs containing relevant keywords:")
-        search_terms = ['DOPPELGANGER', 'SUB DOMAIN', 'DNS RECORD', 'REFERENCE', 'TABLE', 'DOMAIN INFORMATION']
-        #for idx, p in enumerate(doc.paragraphs):
-            #if p.text.strip():
-                #p_upper = p.text.upper()
-                #if any(term in p_upper for term in search_terms):
-                    #print(f"    [{idx}] '{p.text[:200]}'")
         return None
 
     # Split the paragraph at the anchor text position
@@ -1258,12 +1327,6 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
 
     text_before = original_text[:match.start()].rstrip()
     text_after = original_text[match.end():].lstrip()
-
-    #print(f"  📝 Original paragraph length: {len(original_text)} chars")
-    #print(f"  📝 Text before anchor: {len(text_before)} chars")
-    #print(f"  📝 Anchor text: '{heading_text}'")
-    #print(f"  📝 Text after anchor: {len(text_after)} chars")
-    #print(f"  → Image file exists: {os.path.exists(image_path)}")
 
     # Update the original paragraph to contain only text before the anchor
     target_paragraph.text = text_before
@@ -1282,7 +1345,7 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
         print(f"❌ Image insertion failed for '{heading_text}' - changes rolled back")
         return None
 
-    image_para.paragraph_format.space_before = Pt(6)
+    image_para.paragraph_format.space_before = Pt(0)
     image_para.paragraph_format.space_after = Pt(6)
 
     # If there's text after the anchor, create a new paragraph for it
@@ -1292,12 +1355,11 @@ def insert_image_under_heading(doc: Document, heading_text: str, image_path: str
         after_para.text = text_after
         set_para(after_para)
         after_para.paragraph_format.space_before = Pt(6)
-        #print(f"  ✓ Split paragraph: kept {len(text_before)} chars before, inserted image, moved {len(text_after)} chars after")
-    #else:
-        #print(f"  ✓ Replaced anchor with image (no text after)")
-
     return image_para
 
+"""
+This function inserts continued or extra images of tables that crossed over to the next page in the Findings Report, mostly used for INFORMATIONAL section.
+"""
 def insert_extended_image_parts(doc: Document, heading_text: str, image_paths: str):
     if isinstance(image_paths, str):
         image_paths = (image_paths,)
@@ -1314,7 +1376,7 @@ def insert_extended_image_parts(doc: Document, heading_text: str, image_paths: s
         indent_after_insert(after, extended_para)
         res = resize_image_modified(extended_para, extended_img, max_w=6.3, max_h=3.5, desired_ra=3.8)
         if res:
-            extended_para.paragraph_format.space_before = Pt(6)
+            extended_para.paragraph_format.space_before = Pt(0)
             extended_para.paragraph_format.space_after = Pt(6)
             after = extended_para
         else:
@@ -1323,6 +1385,9 @@ def insert_extended_image_parts(doc: Document, heading_text: str, image_paths: s
                 ancestor.remove(extended_para._element)
     return para1
 
+"""
+This is a modified version of the resize image function, again it just updates the image/screenshot with respect to its width and height, mostly used for INFORMATIONAL section.
+"""
 def resize_image_modified(p, file_image: str, max_w: float = 6.3, max_h: float = 3.8, desired_ra: float = 3.8) -> bool:
     if not os.path.exists(file_image):
         print(f"WARNING: Image file not found for insertion: {file_image}")
@@ -1348,6 +1413,9 @@ def resize_image_modified(p, file_image: str, max_w: float = 6.3, max_h: float =
         print(f"WARNING: Failed to insert image '{file_image}': {e}")
         return False
 
+""""
+This function just computes the total number of columns for a given table, mostly used for INFORMATIONAL section.
+"""
 def compute_columns(p, image: pymupdf.Rect):
     counter = []
     try:
@@ -1367,7 +1435,10 @@ def compute_columns(p, image: pymupdf.Rect):
 
     except Exception:
         return None
-
+"""
+This function captures screenshots of tables derived from the Informational section of the Technical Report. These tables include Doppelganger Domains, Sub Domains, and
+DNS Records tables. This also captures screenshots of tables that are more than 1 page or crosses over to the next page.
+"""
 def capture_extended_informational_tables(pdf, start: int, initial_img: pymupdf.Rect, output: str, zoomed_img: pymupdf.Matrix, maximum_number_pages: int = 10, column_count=None) -> tuple:
     file_paths = []
     beginning = pdf[start]
@@ -1418,6 +1489,9 @@ def capture_extended_informational_tables(pdf, start: int, initial_img: pymupdf.
     res = tuple(file_paths)
     return res
 
+"""
+This function converts a number to a word, support number from (1-20).
+"""
 def number_to_word(n: int) -> str:
     """Convert number to word form (1-20 supported)"""
     words = {
@@ -1427,11 +1501,15 @@ def number_to_word(n: int) -> str:
         16: "sixteen", 17: "seventeen", 18: "eighteen", 19: "nineteen", 20: "twenty"
     }
     return words.get(n, str(n))
-
+"""
+This function extracts the tables: Doppelganger Domains, Sub Domains, and DNS Records and captures them as screenshots from the Technical Report under the Informational
+section and inserts these screenshots under the INFORMATIONAL section in the Findings Report. It also places the number of Doppelganger Domains in the body and
+places the customer name as well.
+"""
 def Informational(technical_report: str, findings_report_path: str, customer: str) -> None:
     pdf = pymupdf.open(technical_report)
-    os.makedirs("./Reports/Informational", exist_ok=True)
-
+    informational_dir = USER_REPORTS_DIR / "Informational"
+    informational_dir.mkdir(parents=True, exist_ok=True)
     doppelganger_image = None
     subdomain_image = None
     dns_image = None
@@ -1510,13 +1588,13 @@ def Informational(technical_report: str, findings_report_path: str, customer: st
                 table_kind = "dns_like"
 
             if table_kind == "doppelganger":
-                first_image_path = f"./Reports/Informational/Doppelganger-Domains-Table-{i}.png"
+                first_image_path = str(informational_dir / f"Doppelganger-Domains-Table-{i}.png")
             elif table_kind == "subdomain":
-                first_image_path = f"./Reports/Informational/Sub-Domain-Table-{i}.png"
+                first_image_path = str(informational_dir / f"Sub-Domain-Table-{i}.png")
             elif table_kind == "dns_like":
-                first_image_path = f"./Reports/Informational/DNS-Like-Table-{i}.png"
+                first_image_path = str(informational_dir / f"DNS-Like-Table-{i}.png")
             else:
-                first_image_path = f"./Reports/Informational/Informational-Table-{i}.png"
+                first_image_path = str(informational_dir / f"Informational-Table-{i}.png")
             pixels = page.get_pixmap(matrix=image_zoomed, clip=table_container, alpha=False)
             pixels.save(first_image_path)
             crop_saved_image_whitespace(first_image_path)
@@ -1525,7 +1603,6 @@ def Informational(technical_report: str, findings_report_path: str, customer: st
             else:
                 expected_count = compute_columns(page, table_container)
                 extended_image_parts = capture_extended_informational_tables(pdf, i, table_container, first_image_path, image_zoomed, maximum_number_pages=10, column_count=expected_count)
-            #print(f"  Page {i}: Captured '{table_kind}' table -> {first_image_path}")
             if table_kind == "subdomain":
                 with Image.open(first_image_path) as img:
                     width, height = img.size
@@ -1544,13 +1621,12 @@ def Informational(technical_report: str, findings_report_path: str, customer: st
                     if row_count > 0:
                         doppelganger_count = row_count
                         doppelganger_page_index = i
-                        #print(f"    📊 Found {doppelganger_count} doppelganger domain(s)")
             first_table_candidates.append({"page": i, "path": extended_image_parts, "kind": table_kind})
             if second_table_identifier and dns_image is None:
                 top = second_table_identifier[0].y1 + 30
                 bottom = page.rect.height - 30
                 second_table_container = pymupdf.Rect(left_point, top, right_point, bottom)
-                first_dns_path = f"./Reports/Informational/DNS-Record1.png"
+                first_dns_path = str(informational_dir / f"DNS-Record1.png")
                 expected_count2 = compute_columns(page, second_table_container)
                 dns_image = capture_extended_informational_tables(pdf, i, second_table_container, first_dns_path, image_zoomed, maximum_number_pages=10, column_count=expected_count2)
     used_paths = set()
@@ -1586,30 +1662,16 @@ def Informational(technical_report: str, findings_report_path: str, customer: st
             if place_holder in para.text:
                 para.text = para.text.replace(place_holder, customer.strip())
                 break
-
-    #print(f"\n📋 Informational Image Assignment:")
-    #print(f"  Doppelganger: {doppelganger_image if doppelganger_image else 'None'}")
-    #print(f"  Subdomain:    {subdomain_image if subdomain_image else 'None'}")
     if dns_image:
         pass
-        #dns_part1, dns_part2 = dns_image
-        #print(f"  DNS Part 1:   {dns_part1}")
-        #print(f"  DNS Part 2:   {dns_part2 if dns_part2 else 'None'}")
-    #else:
-        #print(f"  DNS:          None")
-    #print(f"\n🔧 Starting document insertions...")
-
     inserted = False
     if doppelganger_image:
-        #print(f"\n[1/3] Attempting Doppelganger insertion...")
         result = insert_extended_image_parts(doc, "DOPPELGANGER DOMAINS TABLE", doppelganger_image)
         inserted = (result is not None) or inserted
 
     if subdomain_image:
-        #print(f"\n[2/3] Attempting Subdomain insertion...")
         inserted_subdomain = insert_extended_image_parts(doc, "SUB DOMAIN TABLE", subdomain_image)
         if not inserted_subdomain:
-            #print(f"  Retrying with plural variant...")
             inserted_subdomain = insert_extended_image_parts(doc, "SUB DOMAINS TABLE", subdomain_image)
         inserted = (inserted_subdomain is not None) or inserted
 
@@ -1622,28 +1684,64 @@ def Informational(technical_report: str, findings_report_path: str, customer: st
         inserted = (dns_para is not None) or inserted
     # Replace NUMBER (#) with actual doppelganger count
     if doppelganger_count is not None:
-        #print(f"\n[Extra] Replacing doppelganger count placeholder...")
         number_word = number_to_word(doppelganger_count)
         replacement_text = f"{number_word} ({doppelganger_count})"
-
         replaced = False
         for p in doc.paragraphs:
             if "NUMBER (#)" in p.text:
                 p.text = p.text.replace("NUMBER (#)", replacement_text)
                 set_para(p)
-                #print(f"  ✅ Replaced 'NUMBER (#)' with '{replacement_text}'")
                 replaced = True
                 break
-
         if not replaced:
             print(f"❌ Could not find 'NUMBER (#)' placeholder in Findings Report")
-
+    content_inside = False
+    for para in doc.paragraphs:
+        text_data = para.text.strip()
+        if text_data.upper() == "INFORMATIONAL":
+            content_inside = True
+            continue
+        if content_inside and text_data.upper() == "AUTOMATED TESTING ACTIVITY":
+            break
+        if content_inside and text_data.startswith("Reference:"):
+            para.paragraph_format.space_before = Pt(0)
+            para.paragraph_format.space_after = Pt(0)
+            for entry in para.runs:
+                entry.italic = True
+                entry.font.name = "Corbel"
+                entry.font.size = Pt(12)
+                entry.font.color.rgb = RGBColor(64, 64, 64)
+        matching = re.match(r"^(\d+\.\s+)?(.+?)(\s+[–-]\s+)(.+)$", para.text, re.DOTALL)
+        if content_inside and matching:
+            num_part = matching.group(1) or ""
+            title_part = matching.group(2)
+            description_part = matching.group(4)
+            para.clear()
+            num_exec = para.add_run(num_part)
+            num_exec.font.name = "Corbel"
+            num_exec.font.size = Pt(12)
+            num_exec.font.color.rgb = RGBColor(64, 64, 64)
+            title_exec = para.add_run(title_part)
+            title_exec.bold = True
+            title_exec.font.name = "Corbel"
+            title_exec.font.size = Pt(12)
+            title_exec.font.color.rgb = RGBColor(64, 64, 64)
+            dash_exec = para.add_run(" – ")
+            dash_exec.font.name = "Corbel"
+            dash_exec.font.size = Pt(12)
+            dash_exec.font.color.rgb = RGBColor(64, 64, 64)
+            description_exec = para.add_run(description_part)
+            description_exec.font.name = "Corbel"
+            description_exec.font.size = Pt(12)
+            description_exec.font.color.rgb = RGBColor(64, 64, 64)
     doc.save(findings_report_path)
     if inserted:
         print("✅ Informational screenshots were inserted under their correct reference sections")
     else:
         print("❌ Could not find the Informational reference headings in Findings Report")
-
+"""
+This function populates the customer name field in the NARRATIVE, Exploitation section of the Findings Report.
+"""
 def Narrative_Exploitation(findings_report_path: str, name: str) -> None:
     target = "threats to"
     place_holder = "[CUSTOMER]"
@@ -1668,6 +1766,10 @@ def Narrative_Exploitation(findings_report_path: str, name: str) -> None:
     doc.save(findings_report_path)
     print("✅ Narrative Exploitation was successfully populated and saved")
 
+"""
+This function extracts the number of Findings per severity level from the Discovered Threats section of the Technical Report and totals them up
+per severity and returns the total number of discovered Findings per severity level.
+"""
 def discovered_threats(technical_report: str):
     container = ""
     counter_level = Counter({"Informational": 0, "Low": 0, "Medium": 0, "High": 0, "Critical": 0})
@@ -1692,6 +1794,9 @@ def discovered_threats(technical_report: str):
         total = dict(counter_level)
         return total
 
+"""
+This function extracts the year that the Technical Report was generated.
+"""
 def annual_year(technical_report: str) -> int:
     container = ""
     with pdfplumber.open(technical_report) as pdf:
@@ -1704,6 +1809,9 @@ def annual_year(technical_report: str) -> int:
     year = int(matching.group(1))
     return year
 
+"""
+This function unzips the Word document to a temporary folder so its internal files can be modified/edited.
+"""
 def unzip_file(findings_report: str) -> Path:
     directory = tempfile.mkdtemp()
     with zipfile.ZipFile(findings_report, "r") as zip_ref:
@@ -1711,6 +1819,9 @@ def unzip_file(findings_report: str) -> Path:
     reference = Path(directory)
     return reference
 
+"""
+This function rebuilds the edited temporary folder back into a Word document.
+"""
 def rezip_file(folder: Path, output: str) -> None:
     folder = Path(folder)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as modified_docx:
@@ -1718,7 +1829,10 @@ def rezip_file(folder: Path, output: str) -> None:
             if file.is_file():
                 name_holder = file.relative_to(folder)
                 modified_docx.write(file, name_holder)
-
+"""
+This function retrieves embedded excel workbook from the charts in the FINDINGS SUMMARY section, Findings Report, one for circle graph and the other for the
+line graph.
+"""
 def retrieve_excel_from_chart(charts: Path):
     names = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
              "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
@@ -1744,6 +1858,9 @@ def retrieve_excel_from_chart(charts: Path):
             return res
     return None
 
+"""
+This function searches for the corresponding charts under the FINDINGS SUMMARY section in the Findings Report.
+"""
 def search_charts(document_folder: Path):
     charts_dir = document_folder/ "word" / "charts"
     files = list(charts_dir.glob("chart*.xml"))
@@ -1764,10 +1881,13 @@ def search_charts(document_folder: Path):
             chart_annual = chart
     return chart_severity, chart_annual
 
+"""
+This function modifies the severity chart with the correct Findings count per severity level, the circle graph under FINDINGS SUMMARY section in the Findings Report.
+This is for the current year.
+"""
 def modify_severity_chart(excel: Path, total_count) -> None:
     workbook = openpyxl.load_workbook(excel)
     worksheet = workbook.active
-    severity_cols = {}
     upper_bound = worksheet.max_row + 1
     for r in range(1, upper_bound):
         label = str(worksheet.cell(row=r, column=1).value).strip()
@@ -1775,6 +1895,10 @@ def modify_severity_chart(excel: Path, total_count) -> None:
             worksheet.cell(row=r, column=2).value = total_count[label]
     workbook.save(excel)
 
+"""
+This function modifies the annual chart with the correct Findings count per severity level for the given year, the line graph under FINDINGS SUMMARY section in the Findings Report.
+This appends current existing data from the previous years.
+"""
 def modify_annual_chart(excel: Path, year: int, total_count) -> None:
     workbook = openpyxl.load_workbook(excel)
     worksheet = workbook.active
@@ -1803,6 +1927,10 @@ def modify_annual_chart(excel: Path, year: int, total_count) -> None:
         worksheet.cell(row=row_year, column=column).value = total_count[entry]
     workbook.save(excel)
 
+"""
+This function modifies the annual year range of the annual chart, the line graph under FINDINGS SUMMARY section in the Findings Report to include the oldest year to the 
+most current year to be reflected in the line graph.
+"""
 def modify_annual_chart_range(chart: Path, workbook_path: Path) -> None:
     marker1 = ".//c:ser"
     marker2 = ".//c:tx//c:v"
@@ -1838,6 +1966,10 @@ def modify_annual_chart_range(chart: Path, workbook_path: Path) -> None:
             val_form.text = f"Sheet1!${character}$2:${character}${maximum_row}"
     holder_tree.write(converted, encoding="utf-8", xml_declaration=True, standalone=False)
 
+"""
+This function refreshes the embedded excel workbook for each chart under FINDINGS SUMMARY section in the Findings Report so to reflect the most current
+changes in the charts themselves.
+"""
 def refresh_saved_charts_data(findings_report: str) -> None:
    file_path = str(Path(findings_report).resolve())
    word_container = win32com.client.Dispatch("Word.Application")
@@ -1865,6 +1997,9 @@ def refresh_saved_charts_data(findings_report: str) -> None:
    word_container.Quit()
    print("✅ Charts in Findings Report was refreshed successfully")
 
+""""
+This function writes/inserts the total number of Findings for the current year in the severity chart, the circle graph under FINDINGS SUMMARY section in the Findings Report.
+"""
 def modify_num_total_findings(document_folder: Path, total: int) -> None:
     folder = document_folder / "word"
     for xml_file in folder.rglob("*.xml"):
@@ -1873,7 +2008,10 @@ def modify_num_total_findings(document_folder: Path, total: int) -> None:
         modified_data = re.sub(r"(<a:t>\s*Total\s*Findings:?\s*</a:t>.*?<a:t>)\d+(</a:t>)", rf"\g<1>{total}\g<2>", modified_data, flags=re.IGNORECASE | re.DOTALL)
         if modified_data != data:
             xml_file.write_text(modified_data, encoding="utf-8")
-
+"""
+This function extracts the needed data from the Discovered Threats section under the Technical Report, with the associated helper functions,
+modifies the charts (severity-circle graph) and (annual-line graph) with the extracted data to reflect the current Findings in the FINDINGS SUMMARY section in the Findings Report.  
+"""
 def Findings_Summary(technical_report: str, findings_report_path: str) -> None:
     findings_totals = discovered_threats(technical_report)
     year = annual_year(technical_report)
@@ -1902,10 +2040,9 @@ def Findings_Summary(technical_report: str, findings_report_path: str) -> None:
     refresh_saved_charts_data(findings_report_path)
     print("✅ Findings Summary with existing charts was successfully populated and saved")
 
-def customer_name()-> str:
-    name = input("Customer Name: ").strip()
-    return name
-
+"""
+This function populates the customer field and year in the title page of the Findings Report.
+"""
 def customerName(findings_report: str, name: str, year: str) -> None:
     MARKER = False
     if name is None:
@@ -1934,6 +2071,9 @@ def customerName(findings_report: str, name: str, year: str) -> None:
         print("❌ Could not populate Customer Name and year in title page")
     doc.save(findings_report)
 
+"""
+This a dummy placement.
+"""
 def main() -> None:
     print("Automation in process...")
 if __name__ == "__main__":

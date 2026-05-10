@@ -1,9 +1,13 @@
+"""
+This does further clean up of any excess white space left behind by doing more cropping for a given image.
+"""
 import argparse
 import os
-
 import cv2
 
-
+"""
+This function does further cropping for a given image/screenshot, to look more precise in appearance.
+"""
 def crop_table_from_screenshot(
     image_path: str,
     output_path: str,
@@ -60,7 +64,9 @@ def crop_table_from_screenshot(
         print(f"Success! Cropped image saved to: {output_path}")
     return True
 
-
+"""
+This function crops an image in place.
+"""
 def crop_table_in_place(
     image_path: str,
     padding: int = 10,
@@ -76,7 +82,9 @@ def crop_table_in_place(
         verbose=verbose,
     )
 
-
+"""
+Executes functionalities for further crop clean up for a given image.
+"""
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Crop whitespace from screenshots.")
     parser.add_argument("input_image", help="Path to the input screenshot.")

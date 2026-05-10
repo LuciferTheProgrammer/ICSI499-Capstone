@@ -3,9 +3,15 @@ camelot-py==1.0.9
 pdfplumber
 openai
 pymupdf
-flask
-opencv-python-headless
+pandas
+openpyxl
+lxml
+pillow
+opencv-python
 customtkinter
-matplotlib
 pywin32
-types-pywin32
+
+Additional system requirements for running from source:
+- Python installed
+- Microsoft Word installed, because the project uses win32com.client for Word automation
+- OPENAI_API_KEY set as a Windows environment variable
