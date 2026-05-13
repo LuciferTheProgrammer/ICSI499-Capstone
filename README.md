@@ -42,4 +42,8 @@ Instructions to run and execute the Findings Automation Tool:
   functionalities of the code. Also, please ensure the Findings Report is closed or else the code will not be able to get write access to the customer report. Once the automation process is complete, feel free to open the Findings Report to verify the populated sections of the customer report.
 
 5. Finally, under ICSI499/Source_Code/Reports/Sample499/Customer_Template/FindingsReportTest.docx is the generic customer report template you can make a copy of and use that copy for further testing. Don't choose this file as the input for the Findings Report, it's meant to be a generic customer       template for all of OrbitalFire's customers.
-  
+
+FINALLY:
+
+Link to Windows desktop installer for Findings Automation: https://livealbany-my.sharepoint.com/:u:/g/personal/rzadanowsky_albany_edu/IQCtdoj4iC4OQ5BC7pX18Kk6AaQFqnOi3BEgcesPBih9vus?e=IlezUE
+JUST DOWNLOAD ON A WINDOWS MACHINE AND INSTALL, just need to set OpenAI API key, but no need to install all the separate Python modules. 
