@@ -1,4 +1,18 @@
 python -m pip install python-docx
-python -m pip install camelot-py
+python -m pip install camelot-py==1.0.9
 python -m pip install pdfplumber
+python -m pip install openai
+python -m pip install pymupdf
+python -m pip install pandas
+python -m pip install openpyxl
+python -m pip install lxml
+python -m pip install pillow
+python -m pip install opencv-python
 python -m pip install customtkinter
+python -m pip install pywin32
+
+The OpenAI API key must be set as a Windows environment variable:
+setx OPENAI_API_KEY "YOUR_API_KEY_HERE"
+
+My personal OpenAI API Key for project use only:
+**OPENAI_API_KEY = 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**
