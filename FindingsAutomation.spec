@@ -5,8 +5,8 @@ a = Analysis(
     ['Source_Code\\frontend.py'],
     pathex=[],
     binaries=[],
-    datas=[('Source_Code\\Reports', 'Reports')],
-    hiddenimports=[],
+    datas=[('Reports', 'Reports'), ('Source_Code\\Reports\\Recommendations\\gray_flame.png', 'Reports\\Recommendations'), ('Source_Code\\clean_crop.py', '.')],
+    hiddenimports=['cv2', 'customtkinter', 'win32com.client'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -32,7 +32,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['Source_Code\\app.ico'],
+    icon=['C:\\Users\\David\\Downloads\\App\\app.ico'],
 )
 coll = COLLECT(
     exe,
